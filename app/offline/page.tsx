@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 
 import { LogoMark } from "@/components/brand/logo"
+import { OfflineRecovery } from "@/features/pwa/offline-recovery"
 
 export const metadata: Metadata = { title: "You're offline" }
 
@@ -12,6 +13,7 @@ export default function OfflinePage() {
       <p className="mt-2 max-w-sm text-[17px] text-[#44564f]">
         Please check your internet connection. Your bookings are safe and will be here when you&apos;re back online.
       </p>
+      <OfflineRecovery />
     </main>
   )
 }

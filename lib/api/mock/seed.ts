@@ -157,9 +157,9 @@ export function createSeed(now: Date): Omit<MockDbState, "version"> {
     (k) => new Date(slotStartIso(k, times[times.length - 1])).getTime() < now.getTime()
   )
   const graceAt: Record<number, Partial<Booking> & { status: BookingStatus }> = {
-    [pastDays.length - 3]: { status: "confirmed", topic: "healing", prayerPoints: "Healing from back pain that keeps me from work." },
+    [pastDays.length - 3]: { status: "attended", topic: "healing", prayerPoints: "Healing from back pain that keeps me from work." },
     [pastDays.length - 7]: {
-      status: "confirmed",
+      status: "attended",
       mode: "online",
       topic: "healing",
       onlineReason: "Unwell with a flare-up and unable to travel.",
@@ -183,7 +183,10 @@ export function createSeed(now: Date): Omit<MockDbState, "version"> {
       while (used.has(uid)) uid = pick(visitorIds)
       used.add(uid)
       const r = rand()
-      const status: BookingStatus = r < 0.86 ? "confirmed" : r < 0.93 ? "no_show" : "cancelled"
+      // The most recent Thursday is left unmarked so the attendance card has work in it.
+      const lastThursday = dayIndex === pastDays.length - 1
+      const status: BookingStatus =
+        r < 0.86 ? (lastThursday ? "confirmed" : "attended") : r < 0.93 && !lastThursday ? "no_show" : "cancelled"
       const online = rand() < 0.1
       add(uid, start, status, online ? { mode: "online", onlineReason: "Undergoing treatment and unable to travel.", zoomLink: "https://zoom.us/j/0000000000" } : {})
     })

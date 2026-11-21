@@ -3,6 +3,7 @@ import {
   BanIcon,
   CheckIcon,
   CircleCheckBigIcon,
+  CircleDashedIcon,
   ClockIcon,
   RepeatIcon,
   UserXIcon,
@@ -27,6 +28,8 @@ export const STATUS_META: Record<DisplayStatus, { label: string; tone: Tone; ico
   pending: { label: "Waiting for approval", tone: "warning", icon: ClockIcon },
   confirmed: { label: "Confirmed", tone: "success", icon: CheckIcon },
   completed: { label: "Completed", tone: "info", icon: CircleCheckBigIcon },
+  attended: { label: "Completed", tone: "info", icon: CircleCheckBigIcon },
+  unmarked: { label: "Attendance not marked", tone: "warning", icon: CircleDashedIcon },
   declined: { label: "Declined", tone: "neutral", icon: XIcon },
   cancelled: { label: "Cancelled", tone: "neutral", icon: BanIcon },
   cancelled_by_minister: { label: "Cancelled by ministry", tone: "neutral", icon: BanIcon },
@@ -34,6 +37,18 @@ export const STATUS_META: Record<DisplayStatus, { label: string; tone: Tone; ico
   no_show: { label: "Missed", tone: "danger", icon: UserXIcon },
   expired: { label: "Not confirmed in time", tone: "neutral", icon: ClockIcon },
 }
+
+/** The minister's wording for the same statuses. */
+export const ADMIN_STATUS_LABEL: Partial<Record<DisplayStatus, string>> = {
+  pending: "Waiting",
+  completed: "Came",
+  attended: "Came",
+  no_show: "Didn't come",
+  unmarked: "Not marked",
+  cancelled_by_minister: "Cancelled",
+}
+
+export const adminStatusLabel = (s: DisplayStatus) => ADMIN_STATUS_LABEL[s] ?? STATUS_META[s].label
 
 interface StatusBadgeProps {
   status: DisplayStatus

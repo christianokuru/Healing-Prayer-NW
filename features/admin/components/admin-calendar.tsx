@@ -28,6 +28,7 @@ const DOT: Record<string, string> = {
   confirmed: "bg-primary",
   pending: "bg-warning",
   completed: "bg-info",
+  unmarked: "border-2 border-warning bg-card",
   no_show: "bg-[#b4433a]",
   open: "border-2 border-[#9db0a8] bg-card",
 }
@@ -37,8 +38,9 @@ const LEGEND: [string, string][] = [
   ["Confirmed", DOT.confirmed],
   ["Waiting", DOT.pending],
   ["Open", DOT.open],
-  ["Completed", DOT.completed],
-  ["No-show", DOT.no_show],
+  ["Came", DOT.completed],
+  ["Not marked", DOT.unmarked],
+  ["Didn't come", DOT.no_show],
 ]
 
 function cellSummary(c: CalendarCell) {

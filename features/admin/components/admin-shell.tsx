@@ -14,7 +14,7 @@ import { useSession } from "@/features/auth/hooks"
 import { useNow } from "@/hooks/use-now"
 
 import { useAdminBookings } from "../hooks"
-import { pendingRequests } from "../selectors"
+import { attendanceToMark, pendingRequests } from "../selectors"
 
 const BASE_NAV: NavItem[] = [
   { href: "/admin", label: "Overview", icon: HouseIcon, exact: true },
@@ -23,13 +23,14 @@ const BASE_NAV: NavItem[] = [
   { href: "/admin/analytics", label: "Analytics", icon: ChartColumnIcon },
 ]
 
-/** Pending count badge, only fetched once we know this is the admin. */
+/** Overview badge: requests to answer + sessions to mark. Only fetched for the admin. */
 function usePendingCount() {
   const { data: user } = useSession()
   const now = useNow()
   const bookings = useAdminBookings()
   if (user?.role !== "admin" || !bookings.data) return 0
-  return pendingRequests(bookings.data, now).length
+  const toMark = attendanceToMark(bookings.data, now).reduce((n, d) => n + d.bookings.length, 0)
+  return pendingRequests(bookings.data, now).length + toMark
 }
 
 function Sidebar({ items }: { items: NavItem[] }) {

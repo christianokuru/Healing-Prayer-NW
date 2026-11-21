@@ -19,7 +19,7 @@ export interface MockDbState {
 
 const DB_KEY = "hpn.mock-db"
 const SESSION_KEY = "hpn.mock-session"
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 const hasStorage = () => typeof window !== "undefined" && !!window.localStorage
 

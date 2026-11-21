@@ -1,6 +1,7 @@
 import type {
   AdminBooking,
   AnalyticsSummary,
+  Attendance,
   AttendanceMode,
   BlockedDate,
   Booking,
@@ -91,8 +92,11 @@ export interface AdminApi {
   approve(input: ApproveInput): Promise<AdminBooking>
   decline(input: DeclineInput): Promise<AdminBooking>
   revertDecision(bookingId: string): Promise<AdminBooking>
-  markNoShow(bookingId: string): Promise<AdminBooking>
-  undoNoShow(bookingId: string): Promise<AdminBooking>
+  /**
+   * Records whether the visitor came, once the session has started.
+   * Works on confirmed, attended or no-show bookings; `null` clears it back to confirmed.
+   */
+  setAttendance(bookingId: string, attendance: Attendance | null): Promise<AdminBooking>
   listBlockedDates(): Promise<BlockedDate[]>
   /** Blocks a session day; active bookings that day are cancelled and emailed. */
   blockDate(date: string, reason?: string): Promise<{ blocked: BlockedDate; affected: number }>

@@ -9,7 +9,7 @@ import { toast } from "sonner"
 import { EmptyState, ErrorState, ListSkeleton } from "@/components/common/feedback"
 import { InitialsAvatar } from "@/components/common/initials-avatar"
 import { PageHeader } from "@/components/common/page-header"
-import { STATUS_META, StatusBadge } from "@/components/common/status-badge"
+import { ADMIN_STATUS_LABEL, StatusBadge, adminStatusLabel } from "@/components/common/status-badge"
 import { Surface } from "@/components/common/surface"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,7 +32,7 @@ const RANGES = [
 ] as const
 type RangeId = (typeof RANGES)[number]["id"]
 
-const ADMIN_LABEL: Partial<Record<string, string>> = { no_show: "No-show", pending: "Not answered" }
+const ADMIN_LABEL = { ...ADMIN_STATUS_LABEL, pending: "Not answered" }
 
 export function AdminHistory() {
   const now = useNow()
@@ -61,7 +61,7 @@ export function AdminHistory() {
 
   const exportCsv = () => {
     const csv = toCsv(
-      ["Date", "Time", "Visitor", "Email", "Phone", "Topic", "Attended", "Status", "Prayer points"],
+      ["Date", "Time", "Visitor", "Email", "Phone", "Topic", "In person / online", "Attendance", "Prayer points"],
       rows.map((b) => [
         fmt.dayMonthYear(b.slotStart),
         fmt.time(b.slotStart),
@@ -70,7 +70,7 @@ export function AdminHistory() {
         b.visitor.phone,
         topicLabel(b.topic),
         modeLabel(b.mode),
-        ADMIN_LABEL[b.display] ?? STATUS_META[b.display].label,
+        ADMIN_LABEL[b.display] ?? adminStatusLabel(b.display),
         b.prayerPoints,
       ])
     )

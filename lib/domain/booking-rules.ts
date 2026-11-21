@@ -22,7 +22,7 @@ import {
 
 const ACTIVE: BookingStatus[] = ["pending", "confirmed"]
 /** Statuses that keep a slot unavailable to others. */
-const OCCUPYING: BookingStatus[] = ["pending", "confirmed", "no_show"]
+const OCCUPYING: BookingStatus[] = ["pending", "confirmed", "attended", "no_show"]
 
 export const isActive = (b: Pick<Booking, "status">) => ACTIVE.includes(b.status)
 export const occupiesSlot = (b: Pick<Booking, "status">) => OCCUPYING.includes(b.status)
@@ -36,12 +36,23 @@ export function isInBookingWindow(slotStart: string, now: Date): boolean {
   return t >= earliest.getTime() && t <= latest.getTime()
 }
 
+/**
+ * Visitor-facing status. A visitor never sees "unmarked": a confirmed
+ * session that has ended reads as completed until the minister says otherwise.
+ */
 export function displayStatus(b: Booking, now: Date): DisplayStatus {
   const started = new Date(b.slotStart).getTime() <= now.getTime()
   const ended = new Date(slotEndIso(b.slotStart)).getTime() <= now.getTime()
+  if (b.status === "attended") return "completed"
   if (b.status === "confirmed" && ended) return "completed"
   if (b.status === "pending" && started) return "expired"
   return b.status
+}
+
+/** Admin-facing status: shows which started sessions still need attendance. */
+export function adminStatus(b: Booking, now: Date): DisplayStatus {
+  if (needsAttendance(b, now)) return "unmarked"
+  return displayStatus(b, now)
 }
 
 export const isUpcoming = (b: Booking, now: Date) =>
@@ -66,10 +77,15 @@ export const canApprove = (b: Booking, now: Date) =>
 
 export const canDecline = canApprove
 
-export const canMarkNoShow = (b: Booking, now: Date) =>
-  b.status === "confirmed" && hoursUntil(b.slotStart, now) <= 0
+const ATTENDANCE_STATUSES: BookingStatus[] = ["confirmed", "attended", "no_show"]
 
-export const canUndoNoShow = (b: Booking) => b.status === "no_show"
+/** Attendance can be recorded (or corrected) from the moment a session starts. */
+export const canMarkAttendance = (b: Booking, now: Date) =>
+  ATTENDANCE_STATUSES.includes(b.status) && hoursUntil(b.slotStart, now) <= 0
+
+/** Started, confirmed, and nobody has said whether they came. */
+export const needsAttendance = (b: Booking, now: Date) =>
+  b.status === "confirmed" && hoursUntil(b.slotStart, now) <= 0
 
 /** Can the decision on this booking be reverted back to pending? */
 export const canRevertDecision = (b: Booking, now: Date) =>

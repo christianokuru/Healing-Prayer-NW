@@ -1,41 +1,20 @@
 "use client"
 
 import { cn } from "cn"
-import { UndoIcon, UserXIcon, VideoIcon } from "lucide-react"
-import { toast } from "sonner"
+import { VideoIcon } from "lucide-react"
 
-import { StatusBadge, ToneBadge } from "@/components/common/status-badge"
-import { Button } from "@/components/ui/button"
-import { errorMessage } from "@/lib/api/errors"
-import { canMarkNoShow } from "@/lib/domain/booking-rules"
+import { ADMIN_STATUS_LABEL, StatusBadge, ToneBadge } from "@/components/common/status-badge"
+import { canMarkAttendance } from "@/lib/domain/booking-rules"
 import { fmt } from "@/lib/domain/time"
 import { topicLabel } from "@/lib/domain/topics"
 import type { DisplayStatus } from "@/lib/domain/types"
 
-import { useMarkNoShow, useUndoNoShow } from "../hooks"
 import type { DaySlotRow } from "../selectors"
+import { AttendanceControl } from "./attendance-control"
 import { DecisionButtons } from "./decision-buttons"
-
-const ADMIN_LABELS: Partial<Record<string, string>> = {
-  pending: "Waiting",
-  no_show: "No-show",
-  cancelled_by_minister: "Cancelled",
-}
 
 /** The four slots of one Thursday with whatever can be done on each. */
 export function DaySchedule({ rows, now, detailed }: { rows: DaySlotRow[]; now: Date; detailed?: boolean }) {
-  const markNoShow = useMarkNoShow()
-  const undoNoShow = useUndoNoShow()
-
-  const onNoShow = (id: string, name: string) =>
-    markNoShow.mutateAsync(id).then(
-      () =>
-        toast.success(`${name} marked as a no-show. They'll get a gentle email to rebook.`, {
-          action: { label: "Undo", onClick: () => undoNoShow.mutate(id) },
-        }),
-      (e) => toast.error(errorMessage(e))
-    )
-
   return (
     <ul className="divide-y divide-border">
       {rows.map(({ start, booking, state }) => (
@@ -49,7 +28,7 @@ export function DaySchedule({ rows, now, detailed }: { rows: DaySlotRow[]; now: 
               )}
             </span>
             {booking ? (
-              <StatusBadge status={state as DisplayStatus} label={ADMIN_LABELS[state]} size="sm" />
+              <StatusBadge status={state as DisplayStatus} label={ADMIN_STATUS_LABEL[state as DisplayStatus]} size="sm" />
             ) : (
               <ToneBadge tone="neutral">{state === "open" ? "Open" : "Closed"}</ToneBadge>
             )}
@@ -64,21 +43,7 @@ export function DaySchedule({ rows, now, detailed }: { rows: DaySlotRow[]; now: 
                 <p className="mt-1 text-sm text-info-foreground">Asked for Zoom: {booking.onlineReason}</p>
               )}
               {state === "pending" && <DecisionButtons booking={booking} size="sm" className="mt-3" />}
-              {canMarkNoShow(booking, now) && state === "completed" && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="-ml-3 mt-1"
-                  onClick={() => onNoShow(booking.id, booking.visitor.fullName.split(" ")[0])}
-                >
-                  <UserXIcon aria-hidden="true" /> Mark as no-show
-                </Button>
-              )}
-              {state === "no_show" && (
-                <Button variant="ghost" size="sm" className="-ml-3 mt-1" onClick={() => undoNoShow.mutate(booking.id)}>
-                  <UndoIcon aria-hidden="true" /> They did come
-                </Button>
-              )}
+              {canMarkAttendance(booking, now) && <AttendanceControl booking={booking} className="mt-3" />}
             </div>
           )}
         </li>

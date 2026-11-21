@@ -53,7 +53,7 @@ export function buildMonth(
       isSessionDay,
       blocked: blockedDay,
       rows,
-      booked: rows?.filter((r) => r.booking && (isActive(r.booking) || r.state === "completed" || r.state === "no_show")).length ?? 0,
+      booked: rows?.filter((r) => r.booking && (isActive(r.booking) || r.state === "completed" || r.state === "unmarked" || r.state === "no_show")).length ?? 0,
       pending: rows?.filter((r) => r.state === "pending").length ?? 0,
       past: key < today,
     }

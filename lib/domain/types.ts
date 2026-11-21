@@ -34,12 +34,20 @@ export type BookingStatus =
   | "cancelled"
   | "cancelled_by_minister"
   | "rescheduled"
+  /** The minister marked that they came. */
+  | "attended"
+  /** The minister marked that they didn't come. */
   | "no_show"
+
+/** What the minister records after a session has started. `null` clears it. */
+export type Attendance = "attended" | "no_show"
 
 /** Status as shown to people (adds time-derived states). */
 export type DisplayStatus =
   | BookingStatus
   | "completed"
+  /** Confirmed and started, but attendance not recorded yet (admin only). */
+  | "unmarked"
   | "expired"
 
 export interface Booking {
@@ -104,6 +112,7 @@ export interface PersonSummary {
   phone: string
   firstVisit?: string
   lastVisit?: string
+  /** Sessions marked as attended. */
   completedCount: number
   noShowCount: number
   topTopic?: PrayerTopic
@@ -119,8 +128,11 @@ export interface AnalyticsSummary {
   thursdaysHeld: number
   peoplePrayedFor: number
   returningPeople: number
+  /** attended / (attended + no-shows), in %. Unmarked sessions are left out. */
   attendanceRate: number
   noShows: number
+  /** Past confirmed sessions with no attendance recorded yet. */
+  unmarked: number
   onlineSessions: number
   monthly: { month: string; label: string; held: number; capacity: number }[]
   topics: { topic: PrayerTopic; count: number }[]

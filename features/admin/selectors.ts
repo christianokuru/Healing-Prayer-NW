@@ -1,5 +1,5 @@
 import { SCHEDULE } from "@/lib/config/ministry"
-import { canApprove, displayStatus, occupiesSlot } from "@/lib/domain/booking-rules"
+import { adminStatus, canApprove, needsAttendance, occupiesSlot } from "@/lib/domain/booking-rules"
 import { HOUR_MS, dateKey, sessionDaysBetween, slotEndIso, slotsForDay } from "@/lib/domain/time"
 import type { AdminBooking, DisplayStatus } from "@/lib/domain/types"
 
@@ -39,7 +39,7 @@ export function daySlots(key: string, bookings: AdminBooking[], now: Date, block
   return slotsForDay(key).map((start) => {
     const here = bookings.filter((b) => b.slotStart === start)
     const holder = here.find(occupiesSlot) ?? here.find((b) => b.status === "cancelled_by_minister")
-    if (holder) return { start, booking: holder, state: displayStatus(holder, now) }
+    if (holder) return { start, booking: holder, state: adminStatus(holder, now) }
     if (blocked) return { start, state: "closed" }
     const bookable = new Date(start).getTime() - now.getTime() >= SCHEDULE.minNoticeHours * HOUR_MS
     return { start, state: past(start) || !bookable ? "closed" : "open" }
@@ -54,6 +54,26 @@ export function bookingsOnDay(bookings: AdminBooking[], key: string) {
 export function pastSessions(bookings: AdminBooking[], now: Date) {
   return bookings
     .filter((b) => new Date(b.slotStart).getTime() <= now.getTime() && b.status !== "rescheduled")
-    .map((b) => ({ ...b, display: displayStatus(b, now) }))
+    .map((b) => ({ ...b, display: adminStatus(b, now) }))
     .sort((a, b) => b.slotStart.localeCompare(a.slotStart))
+}
+
+export interface AttendanceDay {
+  date: string
+  bookings: AdminBooking[]
+}
+
+/** Started sessions with no attendance recorded, grouped by Thursday, newest first. */
+export function attendanceToMark(bookings: AdminBooking[], now: Date): AttendanceDay[] {
+  const byDay = new Map<string, AdminBooking[]>()
+  bookings
+    .filter((b) => needsAttendance(b, now))
+    .sort((a, b) => a.slotStart.localeCompare(b.slotStart))
+    .forEach((b) => {
+      const key = dateKey(b.slotStart)
+      byDay.set(key, [...(byDay.get(key) ?? []), b])
+    })
+  return [...byDay.entries()]
+    .map(([date, list]) => ({ date, bookings: list }))
+    .sort((a, b) => b.date.localeCompare(a.date))
 }

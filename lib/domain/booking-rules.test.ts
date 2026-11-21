@@ -4,11 +4,15 @@ import { postLoginPath } from "@/lib/auth/safe-redirect"
 import { stepsFor, wizardReducer } from "@/features/booking/state"
 
 import {
+  adminStatus,
   buildAvailability,
   canChangeThemselves,
+  canMarkAttendance,
   canSendLateNotice,
   displayStatus,
   isInBookingWindow,
+  needsAttendance,
+  slotIsFree,
   userHasBookingOnDay,
 } from "./booking-rules"
 import { dateKey, fmt, sessionDaysBetween, slotStartIso } from "./time"
@@ -135,6 +139,41 @@ describe("changes and statuses", () => {
     expect(displayStatus(booking({}), later)).toBe("completed")
     expect(displayStatus(booking({ status: "pending" }), later)).toBe("expired")
     expect(displayStatus(booking({ status: "no_show" }), later)).toBe("no_show")
+  })
+})
+
+describe("attendance", () => {
+  const start = slotStartIso("2026-11-19", "19:30")
+  const before = new Date(new Date(start).getTime() - 60_000)
+  const during = new Date(new Date(start).getTime() + 10 * 60_000)
+  const after = new Date("2026-11-21T00:00:00Z")
+
+  it("can be recorded from the moment an approved session starts, not before", () => {
+    expect(canMarkAttendance(booking({}), before)).toBe(false)
+    expect(canMarkAttendance(booking({}), during)).toBe(true)
+    expect(canMarkAttendance(booking({ status: "pending" }), after)).toBe(false)
+    expect(canMarkAttendance(booking({ status: "cancelled" }), after)).toBe(false)
+  })
+
+  it("can be corrected after it has been recorded", () => {
+    expect(canMarkAttendance(booking({ status: "attended" }), after)).toBe(true)
+    expect(canMarkAttendance(booking({ status: "no_show" }), after)).toBe(true)
+  })
+
+  it("flags started, unmarked sessions for the minister only", () => {
+    expect(needsAttendance(booking({}), during)).toBe(true)
+    expect(needsAttendance(booking({ status: "attended" }), after)).toBe(false)
+    expect(adminStatus(booking({}), after)).toBe("unmarked")
+    expect(adminStatus(booking({ status: "attended" }), after)).toBe("completed")
+    expect(adminStatus(booking({ status: "no_show" }), after)).toBe("no_show")
+    // Visitors never see "unmarked".
+    expect(displayStatus(booking({}), after)).toBe("completed")
+    expect(displayStatus(booking({ status: "attended" }), after)).toBe("completed")
+  })
+
+  it("keeps the slot taken once attendance is recorded", () => {
+    expect(slotIsFree([booking({ status: "attended" })], start)).toBe(false)
+    expect(slotIsFree([booking({ status: "no_show" })], start)).toBe(false)
   })
 })
 

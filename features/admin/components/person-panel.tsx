@@ -4,10 +4,10 @@ import { MailIcon, PhoneIcon, UserSearchIcon } from "lucide-react"
 
 import { EmptyState, ErrorState } from "@/components/common/feedback"
 import { InitialsAvatar } from "@/components/common/initials-avatar"
-import { StatusBadge } from "@/components/common/status-badge"
+import { StatusBadge, adminStatusLabel } from "@/components/common/status-badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useNow } from "@/hooks/use-now"
-import { displayStatus } from "@/lib/domain/booking-rules"
+import { adminStatus } from "@/lib/domain/booking-rules"
 import { fmt } from "@/lib/domain/time"
 import { topicLabel } from "@/lib/domain/topics"
 
@@ -84,7 +84,7 @@ export function PersonPanel({ personId }: { personId: string | null }) {
               <span className="absolute top-[18px] -left-[7px] size-3 rounded-full border-2 border-card bg-primary" aria-hidden="true" />
               <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-muted-foreground">
                 {fmt.dayMonthYear(b.slotStart)} · {topicLabel(b.topic)}
-                <StatusBadge status={displayStatus(b, now)} size="sm" />
+                <StatusBadge status={adminStatus(b, now)} label={adminStatusLabel(adminStatus(b, now))} size="sm" />
               </div>
               <p className="mt-1 font-heading text-[16px] leading-relaxed text-[#26392f]">“{b.prayerPoints}”</p>
             </li>

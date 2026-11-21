@@ -6,11 +6,10 @@ import { SCHEDULE } from "@/lib/config/ministry"
 import {
   canApprove,
   canDecline,
-  canMarkNoShow,
+  canMarkAttendance,
   canRevertDecision,
-  canUndoNoShow,
-  displayStatus,
   isActive,
+  needsAttendance,
 } from "@/lib/domain/booking-rules"
 import { dateKey, fmt, isSessionDay, monthKey, sessionDaysBetween } from "@/lib/domain/time"
 import type {
@@ -25,12 +24,12 @@ import { latency, mockStore, type MockDbState } from "./store"
 
 const nowIso = () => new Date().toISOString()
 
-const attended = (b: Booking, now: Date) => displayStatus(b, now) === "completed"
+const attended = (b: Booking) => b.status === "attended"
 
-function summarize(db: MockDbState, userId: string, now: Date): PersonSummary {
+function summarize(db: MockDbState, userId: string): PersonSummary {
   const u = db.users.find((x) => x.id === userId)!
   const mine = db.bookings.filter((b) => b.userId === userId)
-  const done = mine.filter((b) => attended(b, now)).sort((a, b) => a.slotStart.localeCompare(b.slotStart))
+  const done = mine.filter(attended).sort((a, b) => a.slotStart.localeCompare(b.slotStart))
   const topicCount = new Map<PrayerTopic, number>()
   done.forEach((b) => topicCount.set(b.topic, (topicCount.get(b.topic) ?? 0) + 1))
   const topTopic = [...topicCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
@@ -47,12 +46,12 @@ function summarize(db: MockDbState, userId: string, now: Date): PersonSummary {
   }
 }
 
-function toAdmin(db: MockDbState, b: Booking, now: Date): AdminBooking {
+function toAdmin(db: MockDbState, b: Booking): AdminBooking {
   const u = db.users.find((x) => x.id === b.userId)!
   return {
     ...b,
     visitor: { id: u.id, fullName: u.fullName, email: u.email, phone: u.phone },
-    visitCount: db.bookings.filter((x) => x.userId === u.id && attended(x, now)).length,
+    visitCount: db.bookings.filter((x) => x.userId === u.id && attended(x)).length,
   }
 }
 
@@ -69,7 +68,7 @@ function mutateBooking(
     if (!guard(b, now)) throw new ApiError("invalid_state", failMessage)
     apply(b, db)
     b.updatedAt = nowIso()
-    return toAdmin(db, b, now)
+    return toAdmin(db, b)
   })
 }
 
@@ -87,11 +86,10 @@ export const mockAdminApi: AdminApi = {
   async listBookings(range) {
     await latency()
     requireAdmin()
-    const now = new Date()
     return mockStore.read((db) =>
       db.bookings
         .filter((b) => (!range?.from || b.slotStart >= range.from) && (!range?.to || b.slotStart <= range.to))
-        .map((b) => toAdmin(db, b, now))
+        .map((b) => toAdmin(db, b))
         .sort((a, b) => a.slotStart.localeCompare(b.slotStart))
     )
   },
@@ -132,20 +130,17 @@ export const mockAdminApi: AdminApi = {
     })
   },
 
-  async markNoShow(bookingId) {
-    await latency()
+  async setAttendance(bookingId, attendance) {
+    await latency(150, 300)
     requireAdmin()
-    return mutateBooking(bookingId, canMarkNoShow, "Only past, confirmed sessions can be marked as a no-show.", (b) => {
-      b.status = "no_show"
-    })
-  },
-
-  async undoNoShow(bookingId) {
-    await latency(120, 240)
-    requireAdmin()
-    return mutateBooking(bookingId, (b) => canUndoNoShow(b), "This session isn't marked as a no-show.", (b) => {
-      b.status = "confirmed"
-    })
+    return mutateBooking(
+      bookingId,
+      canMarkAttendance,
+      "Attendance can only be recorded for approved sessions that have started.",
+      (b) => {
+        b.status = attendance ?? "confirmed"
+      }
+    )
   },
 
   async listBlockedDates() {
@@ -188,11 +183,10 @@ export const mockAdminApi: AdminApi = {
   async listPeople() {
     await latency()
     requireAdmin()
-    const now = new Date()
     return mockStore.read((db) =>
       db.users
         .filter((u) => u.role === "visitor")
-        .map((u) => summarize(db, u.id, now))
+        .map((u) => summarize(db, u.id))
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
     )
   },
@@ -200,13 +194,12 @@ export const mockAdminApi: AdminApi = {
   async getPerson(personId) {
     await latency()
     requireAdmin()
-    const now = new Date()
     return mockStore.read((db) => {
       if (!db.users.some((u) => u.id === personId && u.role === "visitor")) {
         throw new ApiError("not_found", "We couldn't find that person.")
       }
       return {
-        ...summarize(db, personId, now),
+        ...summarize(db, personId),
         bookings: db.bookings
           .filter((b) => b.userId === personId)
           .sort((a, b) => b.slotStart.localeCompare(a.slotStart)),
@@ -222,8 +215,9 @@ export const mockAdminApi: AdminApi = {
       const from = addMonths(now, -(months - 1))
       const firstMonth = monthKey(from)
       const inRange = db.bookings.filter((b) => monthKey(b.slotStart) >= firstMonth && new Date(b.slotStart) <= now)
-      const done = inRange.filter((b) => attended(b, now))
+      const done = inRange.filter(attended)
       const noShows = inRange.filter((b) => b.status === "no_show").length
+      const unmarked = inRange.filter((b) => needsAttendance(b, now)).length
       const blockedKeys = new Set(db.blocked.map((b) => b.date))
 
       const monthly = Array.from({ length: months }, (_, i) => {
@@ -250,7 +244,7 @@ export const mockAdminApi: AdminApi = {
       const frequent = [...people.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 6)
-        .map(([id]) => summarize(db, id, now))
+        .map(([id]) => summarize(db, id))
 
       return {
         rangeLabel: `${format(from, "MMMM")} – ${format(now, "MMMM yyyy")}`,
@@ -260,6 +254,7 @@ export const mockAdminApi: AdminApi = {
         returningPeople: [...people.values()].filter((c) => c > 1).length,
         attendanceRate: done.length + noShows ? Math.round((done.length / (done.length + noShows)) * 100) : 100,
         noShows,
+        unmarked,
         onlineSessions: done.filter((b) => b.mode === "online").length,
         monthly,
         topics: [...topicCounts.entries()]

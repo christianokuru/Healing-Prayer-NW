@@ -29,7 +29,7 @@ Demo data lives in the browser's `localStorage`; **Account menu → Reset demo d
 
 - **Auth:** log in, sign up, confirm email (6-digit code), forgot / reset password, profile and password change.
 - **Visitor:** home with next session, 4-step booking (Thursday → time → prayer points → review), reschedule (needs re-approval), withdraw / cancel (48 h+), "Can't make it?" late notice (< 48 h), add to calendar (.ics), directions, Zoom link once approved.
-- **Admin:** overview (requests sorted by urgency, approve / decline with Undo, Zoom link required for online), calendar (tap a Thursday, approve, mark no-show, cancel or restore a Thursday), history (search, ranges, spreadsheet export, per-person prayer history), analytics.
+- **Admin:** overview (requests sorted by urgency, approve / decline with Undo, Zoom link required for online), attendance (mark who came and who didn't, from the overview or calendar, with Undo; this is where no-shows come from), calendar (tap a Thursday, approve, cancel or restore a Thursday), history (search, ranges, spreadsheet export, per-person prayer history), analytics.
 - **PWA:** manifest, icons, service worker with offline page, install prompt (Android) and Add-to-Home-Screen guide (iPhone).
 - Mobile-first: bottom tab bars on phones, 44 px+ touch targets, safe-area aware. Lenis smooth scrolling on wheel/trackpad (native on touch, off for reduced motion).
 

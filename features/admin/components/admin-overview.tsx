@@ -13,12 +13,13 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useUser } from "@/features/auth/hooks"
 import { useNow } from "@/hooks/use-now"
 import { SCHEDULE } from "@/lib/config/ministry"
-import { displayStatus, isActive } from "@/lib/domain/booking-rules"
+import { isActive } from "@/lib/domain/booking-rules"
 import { HOUR_MS, dateKey, fmt, greetingFor, keyLabel, monthKey, relativeDays, sessionDaysBetween, slotStartIso } from "@/lib/domain/time"
 import type { AdminBooking, BlockedDate } from "@/lib/domain/types"
 
 import { useAdminBookings, useBlockedDates } from "../hooks"
-import { bookingsOnDay, currentSessionDay, daySlots, pendingRequests, urgencyOf } from "../selectors"
+import { attendanceToMark, bookingsOnDay, currentSessionDay, daySlots, pendingRequests, urgencyOf } from "../selectors"
+import { AttendanceCard } from "./attendance-card"
 import { DaySchedule } from "./day-schedule"
 import { RequestCard } from "./request-card"
 
@@ -28,7 +29,7 @@ function monthStats(bookings: AdminBooking[], blocked: BlockedDate[], now: Date)
   const blockedKeys = new Set(blocked.map((b) => b.date))
   const days = sessionDaysBetween(new Date(y, m - 1, 1, 12), new Date(y, m, 0, 12)).filter((k) => !blockedKeys.has(k))
   const count = bookings.filter(
-    (b) => monthKey(b.slotStart) === month && (isActive(b) || b.status === "no_show")
+    (b) => monthKey(b.slotStart) === month && (isActive(b) || b.status === "attended" || b.status === "no_show")
   ).length
   return { count, capacity: days.length * SCHEDULE.slotTimes.length }
 }
@@ -36,7 +37,7 @@ function monthStats(bookings: AdminBooking[], blocked: BlockedDate[], now: Date)
 function attendance(bookings: AdminBooking[], now: Date) {
   const since = now.getTime() - 90 * 24 * HOUR_MS
   const recent = bookings.filter((b) => new Date(b.slotStart).getTime() >= since && new Date(b.slotStart) <= now)
-  const done = recent.filter((b) => displayStatus(b, now) === "completed").length
+  const done = recent.filter((b) => b.status === "attended").length
   const missed = recent.filter((b) => b.status === "no_show").length
   return { rate: done + missed ? Math.round((done / (done + missed)) * 100) : 100, missed }
 }
@@ -49,6 +50,8 @@ export function AdminOverview() {
 
   const all = bookings.data ?? []
   const pending = pendingRequests(all, now)
+  const toMark = attendanceToMark(all, now)
+  const toMarkCount = toMark.reduce((n, d) => n + d.bookings.length, 0)
   const urgent = pending.filter((b) => urgencyOf(b.slotStart, now) === "urgent").length
   const today = currentSessionDay(now)
   const isBlocked = !!blocked.data?.some((b) => b.date === today)
@@ -59,10 +62,15 @@ export function AdminOverview() {
   const upcomingBlocked = (blocked.data ?? []).filter((b) => slotStartIso(b.date, SCHEDULE.slotTimes[0]) > now.toISOString())
   const firstName = user.fullName.split(" ")[0]
 
+  const attendanceNote = toMarkCount
+    ? ` ${toMarkCount === 1 ? "1 session needs" : `${toMarkCount} sessions need`} attendance marked.`
+    : ""
   const subtitle = bookings.data
     ? pending.length === 0
-      ? "You're all caught up. Every request has been answered."
-      : `${pending.length} ${pending.length === 1 ? "request is" : "requests are"} waiting for you${urgent ? `, and ${urgent} ${urgent === 1 ? "is" : "are"} within 48 hours.` : "."}`
+      ? toMarkCount
+        ? `Every request has been answered.${attendanceNote}`
+        : "You're all caught up. Every request has been answered."
+      : `${pending.length} ${pending.length === 1 ? "request is" : "requests are"} waiting for you${urgent ? `, and ${urgent} ${urgent === 1 ? "is" : "are"} within 48 hours.` : "."}${attendanceNote}`
     : "Loading today's overview…"
 
   return (
@@ -130,7 +138,11 @@ export function AdminOverview() {
               label="Attendance · 90 days"
               value={`${att.rate}%`}
               unit="showed up"
-              footer={<span className="text-muted-foreground">{att.missed} no-shows</span>}
+              footer={
+                <span className={cn(toMarkCount ? "font-semibold text-warning-foreground" : "text-muted-foreground")}>
+                  {toMarkCount ? `${toMarkCount} not marked yet` : `${att.missed} didn't come`}
+                </span>
+              }
             />
           </>
         )}
@@ -140,6 +152,7 @@ export function AdminOverview() {
         <section aria-label="Needs your attention" className="flex min-w-0 flex-col gap-3">
           <h2 className="font-heading text-[24px] font-medium md:text-[26px]">Needs your attention</h2>
           {bookings.isPending && <ListSkeleton rows={3} />}
+          {bookings.data && <AttendanceCard days={toMark} now={now} />}
           {bookings.data && pending.length === 0 && (
             <Surface>
               <EmptyState

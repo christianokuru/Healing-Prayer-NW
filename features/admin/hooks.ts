@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useApi } from "@/components/providers/api-provider"
 import type { ApproveInput, DeclineInput } from "@/lib/api/contracts"
-import type { AdminBooking, BookingStatus } from "@/lib/domain/types"
+import type { AdminBooking, Attendance, BookingStatus } from "@/lib/domain/types"
 import { qk } from "@/lib/query/keys"
 
 export function useAdminBookings() {
@@ -43,8 +43,9 @@ export function useAnalytics(months = 6) {
 function useStatusMutation<TInput>(
   mutationFn: (input: TInput) => Promise<AdminBooking>,
   idOf: (input: TInput) => string,
-  nextStatus: BookingStatus
+  nextStatus: BookingStatus | ((input: TInput) => BookingStatus)
 ) {
+  const statusFor = (input: TInput) => (typeof nextStatus === "function" ? nextStatus(input) : nextStatus)
   const qc = useQueryClient()
   return useMutation({
     mutationFn,
@@ -52,7 +53,7 @@ function useStatusMutation<TInput>(
       await qc.cancelQueries({ queryKey: qk.admin.bookings })
       const previous = qc.getQueryData<AdminBooking[]>(qk.admin.bookings)
       qc.setQueryData<AdminBooking[]>(qk.admin.bookings, (list) =>
-        list?.map((b) => (b.id === idOf(input) ? { ...b, status: nextStatus } : b))
+        list?.map((b) => (b.id === idOf(input) ? { ...b, status: statusFor(input) } : b))
       )
       return { previous }
     },
@@ -82,14 +83,19 @@ export function useRevertDecision() {
   return useStatusMutation((id: string) => api.admin.revertDecision(id), (id) => id, "pending")
 }
 
-export function useMarkNoShow() {
-  const api = useApi()
-  return useStatusMutation((id: string) => api.admin.markNoShow(id), (id) => id, "no_show")
+export interface AttendanceInput {
+  bookingId: string
+  attendance: Attendance | null
 }
 
-export function useUndoNoShow() {
+/** Records (or clears) whether someone came. Instant in the UI, reconciled after. */
+export function useSetAttendance() {
   const api = useApi()
-  return useStatusMutation((id: string) => api.admin.undoNoShow(id), (id) => id, "confirmed")
+  return useStatusMutation(
+    ({ bookingId, attendance }: AttendanceInput) => api.admin.setAttendance(bookingId, attendance),
+    (i) => i.bookingId,
+    (i) => i.attendance ?? "confirmed"
+  )
 }
 
 function useInvalidateAll() {

@@ -110,7 +110,11 @@ export function AdminAnalytics() {
           <>
             <StatTile label="Sessions held" value={a.sessionsHeld} footer={<span className="text-muted-foreground">across {a.thursdaysHeld} Thursdays</span>} />
             <StatTile label="People prayed for" value={a.peoplePrayedFor} footer={<span className="text-muted-foreground">{a.returningPeople} came more than once</span>} />
-            <StatTile label="Attendance" value={`${a.attendanceRate}%`} footer={<span className="text-muted-foreground">{a.noShows} no-shows</span>} />
+            <StatTile label="Attendance" value={`${a.attendanceRate}%`} footer={
+              <span className="text-muted-foreground">
+                {a.noShows} didn&apos;t come{a.unmarked ? ` · ${a.unmarked} not marked` : ""}
+              </span>
+            } />
             <StatTile
               label="Online by Zoom"
               value={a.onlineSessions}

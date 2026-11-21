@@ -77,7 +77,7 @@ public/sw.js         Removes the old service worker (keep for a few months)
 
 ## Waiting on the client
 
-- Public pages (home, about, etc.) — `/` currently redirects to `/login`.
+- Public pages (home, about, etc.) — for now `proxy.ts` sends `/` to `/login`, or to the dashboard when signed in.
 - Privacy notice and booking terms (`app/(auth)/privacy/page.tsx` is a placeholder).
 - Contact email (`MINISTRY.contactEmail`).
 - Brown dark mode (planned).

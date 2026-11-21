@@ -12,6 +12,13 @@ export function proxy(request: NextRequest) {
   const role = request.cookies.get(ROLE_COOKIE)?.value
   const signedIn = isRole(role)
 
+  // No public site yet (waiting on content from the client), so "/" goes
+  // straight to the right place. Done here rather than in app/page.tsx so
+  // there's no page that only exists to redirect while it renders.
+  if (pathname === "/") {
+    return NextResponse.redirect(new URL(signedIn ? homeFor(role) : "/login", request.url))
+  }
+
   const isVisitorArea = pathname.startsWith("/dashboard")
   const isAdminArea = pathname.startsWith("/admin")
   const isAuthPage = pathname === "/login" || pathname === "/signup"
@@ -30,5 +37,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*", "/login", "/signup"],
+  matcher: ["/", "/dashboard/:path*", "/admin/:path*", "/login", "/signup"],
 }

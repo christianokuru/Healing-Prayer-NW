@@ -9,7 +9,7 @@ Until that API is ready, everything runs against a **mock API in the browser**, 
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm run build && npm start   # production build (service worker / PWA only runs here)
+npm run build && npm start   # production build
 npm test           # unit tests (booking rules, wizard, Calgary time, redirects)
 npm run lint
 npm run typecheck
@@ -30,7 +30,7 @@ Demo data lives in the browser's `localStorage`; **Account menu → Reset demo d
 - **Auth:** log in, sign up, confirm email (6-digit code), forgot / reset password, profile and password change.
 - **Visitor:** home with next session, 4-step booking (Thursday → time → prayer points → review), reschedule (needs re-approval), withdraw / cancel (48 h+), "Can't make it?" late notice (< 48 h), add to calendar (.ics), directions, Zoom link once approved.
 - **Admin:** overview (requests sorted by urgency, approve / decline with Undo, Zoom link required for online), attendance (mark who came and who didn't, from the overview or calendar, with Undo; this is where no-shows come from), calendar (tap a Thursday, approve, cancel or restore a Thursday), history (search, ranges, spreadsheet export, per-person prayer history), analytics.
-- **PWA:** manifest, icons, service worker with offline page, install prompt (Android) and Add-to-Home-Screen guide (iPhone).
+- **PWA:** manifest, icons, install prompt (Android) and Add-to-Home-Screen guide (iPhone). There is no offline mode: the old service worker was removed, and `public/sw.js` is now a kill switch that unregisters it on phones that still have it.
 - Mobile-first: bottom tab bars on phones, 44 px+ touch targets, safe-area aware. Lenis smooth scrolling on wheel/trackpad (native on touch, off for reduced motion).
 
 ## Booking rules (enforced in `lib/domain/booking-rules.ts`)
@@ -47,7 +47,7 @@ All times are stored in UTC and shown in `America/Edmonton` using the IANA zone,
 ## Architecture
 
 ```
-app/                 Routes only (thin). (auth)/, dashboard/, admin/, offline, manifest
+app/                 Routes only (thin). (auth)/, dashboard/, admin/, manifest
 features/            One folder per feature: components + hooks + pure logic
   auth/  booking/  visitor/  admin/  pwa/
 components/          Shared UI: ui/ (shadcn), common/, forms/, layout/, brand/, providers/
@@ -58,7 +58,7 @@ lib/
   api/mock/          Browser mock implementation (the only thing to replace)
   query/keys.ts      TanStack Query keys
 proxy.ts             Optimistic route guard (role cookie)
-public/sw.js         Service worker
+public/sw.js         Removes the old service worker (keep for a few months)
 ```
 
 - **Dependency inversion:** components call hooks → hooks call `useApi()` → an `Api` implementation. Swapping mock for live touches no UI.

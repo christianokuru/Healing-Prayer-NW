@@ -6,7 +6,7 @@ import { Toaster } from "@/components/ui/sonner"
 
 import { ApiProvider } from "./api-provider"
 import { QueryProvider } from "./query-provider"
-import { ServiceWorkerRegister } from "./service-worker-register"
+import { ServiceWorkerCleanup } from "./service-worker-cleanup"
 import { SmoothScrollProvider } from "./smooth-scroll-provider"
 
 export function AppProviders({ children }: { children: ReactNode }) {
@@ -15,7 +15,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <QueryProvider>
         <SmoothScrollProvider>{children}</SmoothScrollProvider>
         <Toaster position="top-center" richColors={false} closeButton offset={16} mobileOffset={12} />
-        <ServiceWorkerRegister />
+        <ServiceWorkerCleanup />
       </QueryProvider>
     </ApiProvider>
   )

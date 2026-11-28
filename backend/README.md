@@ -49,6 +49,10 @@ Beyond the spec's error codes:
 
 - `returningPeople`: prayed for in the range and completed at least two sessions overall.
 - `frequent`: statistics are for the selected range. `attendanceRate` is 0 with no data.
+- Attendance: `PUT /admin/bookings/{id}/attendance` with `{ "attendance": "attended" | "no_show" | null }`,
+  allowed from the session's start on confirmed, attended or no-show bookings (`null` clears it). Only
+  `attended` counts as held (visits, topics, frequent, `sessionsHeld`); started but unmarked
+  sessions are reported as `unmarked`. The "we missed you" email is sent at most once per booking.
 - `/admin/bookings`: `from` is inclusive, `to` exclusive.
 - Slots outside the booking window are shown as `taken`.
 - Undoing a decision is refused (`invalid_state`) if the slot was taken since, the
@@ -69,7 +73,8 @@ app/emails.py   queues emails      app/worker.py   sends them, daily jobs
 - **Double booking:** booking changes run one at a time (a PostgreSQL advisory lock), and
   partial unique indexes back that up.
 - **Emails** are saved in the same transaction as the change. Approval, decline and
-  no-show emails wait 10 seconds, so Undo withdraws them. Delivery is at least once.
+  no-show emails wait 10 seconds, so Undo withdraws them; a no-show email that already went
+  out is never sent again. Delivery is at least once.
 - **Privacy:** prayer points never reach emails or logs; sessions, codes and tokens are
   stored hashed; sent email bodies are cleared.
 

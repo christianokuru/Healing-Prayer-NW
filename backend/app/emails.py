@@ -195,11 +195,28 @@ def declined(session: Session, booking: Booking, visitor: User) -> None:
     )
 
 
+NO_SHOW_SUBJECT = "We missed you"
+
+
+def no_show_already_sent(session: Session, booking: Booking) -> bool:
+    """So switching attendance back and forth never emails someone twice."""
+    return (
+        session.exec(
+            select(OutboxEmail.id).where(
+                col(OutboxEmail.booking_id) == booking.id,
+                col(OutboxEmail.subject) == NO_SHOW_SUBJECT,
+                col(OutboxEmail.sent_at).is_not(None),
+            )
+        ).first()
+        is not None
+    )
+
+
 def no_show(session: Session, booking: Booking, visitor: User) -> None:
     _queue(
         session,
         visitor.email,
-        "We missed you",
+        NO_SHOW_SUBJECT,
         f"Hello {visitor.full_name},\n\nWe missed you at your prayer session and hope "
         "you're well. You're welcome to book another time whenever you're ready: "
         f"{_link('/dashboard/book')}",

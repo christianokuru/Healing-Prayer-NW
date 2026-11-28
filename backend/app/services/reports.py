@@ -13,7 +13,6 @@ from app import clock
 from app.errors import AppError, ErrorCode
 from app.models import BlockedDate, Booking, BookingStatus, Mode, Role, User
 from app.schedule import (
-    SESSION_LENGTH,
     SLOT_TIMES,
     add_months,
     local_date,
@@ -31,18 +30,18 @@ from app.schemas import (
 )
 
 
+# A session counts as held only once the minister has marked it as attended.
 def _completed_clauses(now: datetime) -> tuple[ColumnElement[bool], ...]:
-    return (
-        col(Booking.status) == BookingStatus.confirmed,
-        col(Booking.slot_start) <= now - SESSION_LENGTH,
-    )
+    return (col(Booking.status) == BookingStatus.attended,)
 
 
 def _is_completed(booking: Booking, now: datetime) -> bool:
-    return (
-        booking.status is BookingStatus.confirmed
-        and booking.slot_start <= now - SESSION_LENGTH
-    )
+    return booking.status is BookingStatus.attended
+
+
+def _is_unmarked(booking: Booking, now: datetime) -> bool:
+    """Approved, started, and nobody has said whether they came."""
+    return booking.status is BookingStatus.confirmed and booking.slot_start <= now
 
 
 # --- Bookings
@@ -193,6 +192,7 @@ def analytics(session: Session, months: int) -> AnalyticsSummary:
         if attended_or_missed
         else 0,
         no_shows=no_shows,
+        unmarked=sum(_is_unmarked(b, now) for b in bookings),
         online_sessions=sum(b.mode is Mode.online for b in held),
         monthly=[
             MonthStats(

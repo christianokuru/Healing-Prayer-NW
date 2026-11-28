@@ -22,7 +22,8 @@ class BookingStatus(StrEnum):
     cancelled = "cancelled"
     cancelled_by_minister = "cancelled_by_minister"
     rescheduled = "rescheduled"
-    no_show = "no_show"
+    attended = "attended"  # the minister marked that they came
+    no_show = "no_show"  # the minister marked that they didn't come
 
 
 class Mode(StrEnum):
@@ -45,7 +46,9 @@ class EmailKind(StrEnum):
 
 
 ACTIVE = (BookingStatus.pending, BookingStatus.confirmed)
-HOLDS_SLOT = (*ACTIVE, BookingStatus.no_show)
+HOLDS_SLOT = (*ACTIVE, BookingStatus.attended, BookingStatus.no_show)
+# Statuses the minister can record attendance on, once the session has started.
+ATTENDANCE = (BookingStatus.confirmed, BookingStatus.attended, BookingStatus.no_show)
 
 TIMESTAMPTZ: Any = DateTime(timezone=True)
 
@@ -117,7 +120,9 @@ class Booking(SQLModel, table=True):
             "uq_bookings_held_slot",
             "slot_start",
             unique=True,
-            postgresql_where=text("status IN ('pending', 'confirmed', 'no_show')"),
+            postgresql_where=text(
+                "status IN ('pending', 'confirmed', 'attended', 'no_show')"
+            ),
         ),
         # One open reschedule request per booking.
         Index(

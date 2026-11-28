@@ -180,7 +180,7 @@ def test_every_protected_route_needs_a_session(anon, grace):
     }
     paths = anon.get("/openapi.json").json()["paths"]
     operations = [(p, m) for p, item in paths.items() for m in item if p not in public]
-    assert len(operations) == 23  # 28 in the spec minus 6 public, plus slot polling
+    assert len(operations) == 22  # 27 in the spec minus 6 public, plus slot polling
     for path, method in operations:
         url = re.sub(r"\{.*?\}", "2026-12-03", path)
         check_error(anon.request(method, url), 401, "unauthenticated")

@@ -24,6 +24,12 @@ def act(admin, booking, action):
     return admin.post(f"/admin/bookings/{booking}/{action}", json={})
 
 
+def attend(admin, booking, attendance):
+    return admin.put(
+        f"/admin/bookings/{booking}/attendance", json={"attendance": attendance}
+    )
+
+
 def test_approve_online_needs_zoom(grace, admin, db):
     booking = booked(grace, mode="online", onlineReason="Far away")
     check_error(approve(admin, booking), 422, "validation")
@@ -89,16 +95,42 @@ def test_revert_cannot_restore_a_taken_original(grace, tom, admin):
     assert status_of(grace, moved) == "confirmed"
 
 
-def test_no_show(grace, tom, admin, db, time):
+def test_attendance(grace, tom, admin, db, time):
     booking = confirmed(grace, admin)
-    check_error(act(admin, booking, "no-show"), 409, "invalid_state")
+    request = booked(tom, index=1)
+    # Not before the session starts.
+    check_error(attend(admin, booking, "attended"), 409, "invalid_state")
     time.to(slots_on(DEC_3)[0])
-    assert act(admin, booking, "no-show").json()["status"] == "no_show"
-    assert "We missed you" in subjects(db, GRACE)
-    url = f"/admin/bookings/{booking}/no-show"
-    assert admin.delete(url).json()["status"] == "confirmed"
+    # Only approved sessions.
+    check_error(attend(admin, request, "attended"), 409, "invalid_state")
+    check_error(attend(admin, booking, "maybe"), 422, "validation")
+
+    assert attend(admin, booking, "attended").json()["status"] == "attended"
+    assert attend(admin, booking, "attended").json()["status"] == "attended"
     assert "We missed you" not in subjects(db, GRACE)
-    check_error(admin.delete(url), 409, "invalid_state")
+
+    # Corrected to a no-show: the email waits for the Undo delay...
+    assert attend(admin, booking, "no_show").json()["status"] == "no_show"
+    assert "We missed you" in subjects(db, GRACE)
+    # ...and clearing it withdraws the unsent email.
+    assert attend(admin, booking, None).json()["status"] == "confirmed"
+    assert "We missed you" not in subjects(db, GRACE)
+
+
+def test_no_show_email_is_sent_once(grace, admin, db, time):
+    booking = confirmed(grace, admin)
+    time.to(slots_on(DEC_3)[0])
+    attend(admin, booking, "no_show")
+    time.forward(minutes=1)
+    while send_next(db):
+        pass
+    # Switching back and forth after it went out never sends it again.
+    attend(admin, booking, "attended")
+    attend(admin, booking, "no_show")
+    time.forward(minutes=1)
+    while send_next(db):
+        pass
+    assert subjects(db, GRACE).count("We missed you") == 1
 
 
 def test_block_thursday(grace, tom, admin, db):
@@ -132,14 +164,20 @@ def test_block_thursday(grace, tom, admin, db):
 
 
 def test_lists_people_and_analytics(grace, tom, admin, time):
-    confirmed(grace, admin, NOV_26)
     online = booked(grace, DEC_3, mode="online", onlineReason="Far", topic="family")
     approve(admin, online, zoomLink="https://zoom.us/j/1")
     missed = confirmed(tom, admin, DEC_3, 1)
+    first = confirmed(grace, admin, NOV_26)
     later = confirmed(grace, admin, DEC_10)
     admin.post("/admin/blocked-dates", json={"date": "2026-12-24"})
     time.to(slots_on(DEC_3)[3] + timedelta(hours=1))
-    act(admin, missed, "no-show")
+    attend(admin, missed, "no_show")
+
+    # Sessions only count as held once marked as attended.
+    stats = admin.get("/admin/analytics", params={"months": 3}).json()
+    assert stats["sessionsHeld"] == 0 and stats["unmarked"] == 2
+    attend(admin, first, "attended")
+    attend(admin, online, "attended")
 
     everything = admin.get("/admin/bookings").json()
     assert [b["slotStart"] for b in everything] == sorted(
@@ -170,6 +208,7 @@ def test_lists_people_and_analytics(grace, tom, admin, time):
     assert stats["sessionsHeld"] == 2 and stats["thursdaysHeld"] == 2
     assert stats["peoplePrayedFor"] == 1 and stats["returningPeople"] == 1
     assert stats["noShows"] == 1 and stats["attendanceRate"] == 67
+    assert stats["unmarked"] == 0
     assert stats["onlineSessions"] == 1
     assert stats["monthly"] == [
         {"month": "2026-10", "label": "Oct", "held": 0, "capacity": 20},

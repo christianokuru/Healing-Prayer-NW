@@ -12,6 +12,7 @@ from app import clock, emails
 from app.errors import AppError, ErrorCode
 from app.models import (
     ACTIVE,
+    ATTENDANCE,
     HOLDS_SLOT,
     BlockedDate,
     Booking,
@@ -400,25 +401,30 @@ def _check_restorable(
         )
 
 
-def mark_no_show(session: Session, booking_id: uuid.UUID) -> Booking:
+def set_attendance(
+    session: Session, booking_id: uuid.UUID, attendance: BookingStatus | None
+) -> Booking:
+    """Record whether the visitor came (attended / no_show), or clear it (None).
+
+    Allowed from the moment an approved session starts, and can be corrected later.
+    The "we missed you" email goes out at most once per booking: it waits for the
+    Undo delay, is withdrawn by any later change, and isn't sent again once sent.
+    """
     _lock(session)
     booking = _get(session, booking_id)
-    if (
-        booking.status is not BookingStatus.confirmed
-        or booking.slot_start > clock.utcnow()
+    if booking.status not in ATTENDANCE or booking.slot_start > clock.utcnow():
+        raise AppError(
+            ErrorCode.invalid_state,
+            "Attendance can only be recorded for approved sessions that have started.",
+        )
+    target = attendance or BookingStatus.confirmed
+    if booking.status is target:
+        return booking
+    _set_status(session, booking, target)
+    if target is BookingStatus.no_show and not emails.no_show_already_sent(
+        session, booking
     ):
-        raise AppError(ErrorCode.invalid_state)
-    _set_status(session, booking, BookingStatus.no_show)
-    emails.no_show(session, booking, session.get_one(User, booking.user_id))
-    return _commit(session, booking)
-
-
-def undo_no_show(session: Session, booking_id: uuid.UUID) -> Booking:
-    _lock(session)
-    booking = _get(session, booking_id)
-    if booking.status is not BookingStatus.no_show:
-        raise AppError(ErrorCode.invalid_state)
-    _set_status(session, booking, BookingStatus.confirmed)
+        emails.no_show(session, booking, session.get_one(User, booking.user_id))
     return _commit(session, booking)
 
 

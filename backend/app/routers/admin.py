@@ -8,12 +8,13 @@ from app.db import SessionDep
 from app.deps import require_admin
 from app.errors import ErrorCode as E
 from app.errors import error_responses
-from app.models import BlockedDate
+from app.models import BlockedDate, BookingStatus
 from app.schemas import (
     AdminBooking,
     AnalyticsRange,
     AnalyticsSummary,
     ApproveRequest,
+    AttendanceRequest,
     BlockDateRequest,
     BlockDateResponse,
     BlockedDatePublic,
@@ -70,15 +71,13 @@ def revert_decision(booking_id: uuid.UUID, session: SessionDep) -> AdminBooking:
     return reports.get_booking(session, booking_id)
 
 
-@router.post("/bookings/{booking_id}/no-show", responses=DECISION_ERRORS)
-def mark_no_show(booking_id: uuid.UUID, session: SessionDep) -> AdminBooking:
-    bookings.mark_no_show(session, booking_id)
-    return reports.get_booking(session, booking_id)
-
-
-@router.delete("/bookings/{booking_id}/no-show", responses=DECISION_ERRORS)
-def undo_no_show(booking_id: uuid.UUID, session: SessionDep) -> AdminBooking:
-    bookings.undo_no_show(session, booking_id)
+@router.put("/bookings/{booking_id}/attendance", responses=DECISION_ERRORS)
+def set_attendance(
+    booking_id: uuid.UUID, data: AttendanceRequest, session: SessionDep
+) -> AdminBooking:
+    """Record whether the visitor came, once the session has started."""
+    attendance = BookingStatus(data.attendance) if data.attendance else None
+    bookings.set_attendance(session, booking_id, attendance)
     return reports.get_booking(session, booking_id)
 
 

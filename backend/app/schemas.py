@@ -2,7 +2,7 @@ import datetime as dt
 import uuid
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import (
     AfterValidator,
@@ -250,6 +250,12 @@ class DeclineRequest(CamelModel):
     message: Annotated[Text, Field(max_length=300)] | None = None
 
 
+class AttendanceRequest(CamelModel):
+    """`null` clears the attendance (back to confirmed)."""
+
+    attendance: Literal["attended", "no_show"] | None
+
+
 class BlockDateRequest(CamelModel):
     date: dt.date
     reason: Annotated[Text, Field(max_length=80)] | None = None
@@ -269,7 +275,7 @@ class BlockDateResponse(CamelModel):
 class PersonSummary(VisitorSummary):
     first_visit: UtcOut | None
     last_visit: UtcOut | None
-    completed_count: int
+    completed_count: int  # sessions marked as attended
     no_show_count: int
     top_topic: Topic | None
 
@@ -302,8 +308,9 @@ class AnalyticsSummary(CamelModel):
     thursdays_held: int
     people_prayed_for: int
     returning_people: int
-    attendance_rate: int
+    attendance_rate: int  # attended / (attended + no_show); unmarked left out
     no_shows: int
+    unmarked: int  # started, confirmed, attendance not recorded yet
     online_sessions: int
     monthly: list[MonthStats]
     topics: list[TopicCount]

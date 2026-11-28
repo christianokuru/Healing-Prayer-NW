@@ -1,4 +1,5 @@
 import type { CreatedBooking } from "@/lib/api/contracts"
+import type { ThursdayAvailability } from "@/lib/domain/types"
 
 export type WizardStep = "day" | "time" | "details" | "review" | "done"
 
@@ -63,4 +64,16 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
         date: action.resetDate ? undefined : state.date,
       }
   }
+}
+
+export type Lost = "day" | "slot" | null
+
+/** Has the Thursday or time they chose stopped being free since they picked it? */
+export function lostChoice(days: ThursdayAvailability[] | undefined, date?: string, slotStart?: string): Lost {
+  if (!days || !date) return null
+  const day = days.find((d) => d.date === date)
+  if (!day || day.state !== "open") return "day"
+  if (!slotStart) return null
+  const slot = day.slots.find((s) => s.start === slotStart)
+  return slot?.state === "open" ? null : "slot"
 }

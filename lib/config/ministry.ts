@@ -42,6 +42,8 @@ export const SCHEDULE = {
   /** Visitors can cancel from their link until this many hours before. */
   changeNoticeHours: 48,
   hoursLabel: "7:00 – 9:00 pm",
+  /** How often the booking page re-checks which times are still free (the API suggests 10s). */
+  slotPollSeconds: 10,
 } as const
 
 export const LIMITS = {

@@ -281,7 +281,7 @@ export const mockAdminApi: AdminApi = {
         thursdaysHeld: new Set(done.map((b) => dateKey(b.slotStart))).size,
         peoplePrayedFor: people.size,
         returningPeople: [...people.values()].filter((c) => c > 1).length,
-        attendanceRate: done.length + noShows ? Math.round((done.length / (done.length + noShows)) * 100) : 100,
+        attendanceRate: done.length + noShows ? Math.round((done.length / (done.length + noShows)) * 100) : 0,
         noShows,
         unmarked,
         onlineSessions: done.filter((b) => b.mode === "online").length,

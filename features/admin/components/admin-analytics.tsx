@@ -119,9 +119,9 @@ export function AdminAnalytics() {
           Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[124px] rounded-2xl" />)
         ) : (
           <>
-            <StatTile label="Sessions held" value={a.sessionsHeld} footer={<span className="text-muted-foreground">across {a.thursdaysHeld} Thursdays</span>} />
+            <StatTile label="Sessions held" value={a.sessionsHeld} footer={<span className="text-muted-foreground">across {a.thursdaysHeld} {a.thursdaysHeld === 1 ? "Thursday" : "Thursdays"}</span>} />
             <StatTile label="People prayed for" value={a.peoplePrayedFor} footer={<span className="text-muted-foreground">{a.returningPeople} came more than once</span>} />
-            <StatTile label="Attendance" value={`${a.attendanceRate}%`} footer={
+            <StatTile label="Attendance" value={a.noShows || a.sessionsHeld ? `${a.attendanceRate}%` : "—"} footer={
               <span className="text-muted-foreground">
                 {a.noShows} didn&apos;t come{a.unmarked ? ` · ${a.unmarked} not marked` : ""}
               </span>

@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeftIcon, ArrowRightIcon, Loader2Icon } from "lucide-react"
+import { ArrowLeftIcon, ArrowRightIcon, InfoIcon, Loader2Icon } from "lucide-react"
 import { useEffect, useReducer, useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -10,11 +10,11 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useScrollTo } from "@/hooks/use-scroll-to"
 import { errorMessage, isApiError } from "@/lib/api/errors"
-import { keyLabel } from "@/lib/domain/time"
+import { fmt, keyLabel } from "@/lib/domain/time"
 
 import { clearDraft, loadDraft } from "../draft"
 import { useAvailability, useCreateBooking } from "../hooks"
-import { STEPS, wizardReducer, type BookingDetails } from "../state"
+import { STEPS, lostChoice, wizardReducer, type BookingDetails, type Lost } from "../state"
 import { BookingSuccess } from "./booking-success"
 import { DayPicker } from "./day-picker"
 import { DETAILS_FORM_ID, DetailsForm } from "./details-form"
@@ -32,11 +32,11 @@ const STEP_TITLES = {
 
 /** The public booking flow: Thursday → time → details → review. No account needed. */
 export function BookingWizard() {
-  const availability = useAvailability()
+  const [state, dispatch] = useReducer(wizardReducer, { step: "day" })
+  // Keep checking which times are free until they've sent their request.
+  const availability = useAvailability({ poll: state.step !== "done" })
   const create = useCreateBooking()
 
-  const [state, dispatch] = useReducer(wizardReducer, { step: "day" })
-  const [draft] = useState(() => (typeof window === "undefined" ? null : loadDraft()))
   const [agreed, setAgreed] = useState(false)
   const topRef = useRef<HTMLDivElement>(null)
   const scrollTo = useScrollTo(-88)
@@ -53,6 +53,9 @@ export function BookingWizard() {
 
   const day = availability.data?.find((d) => d.date === state.date)
   const slot = day?.slots.find((s) => s.start === state.slotStart)
+  // Someone else may book their time while they're still filling in the form.
+  const lost =
+    state.step === "day" || create.isPending ? null : lostChoice(availability.data, state.date, state.slotStart)
 
   if (state.step === "done" && state.result) {
     return (
@@ -101,7 +104,7 @@ export function BookingWizard() {
     (state.step === "day" && day?.state === "open") ||
     (state.step === "time" && slot?.state === "open") ||
     state.step === "details" ||
-    state.step === "review"
+    (state.step === "review" && !lost)
 
   const onContinue = () => {
     if (state.step === "review") submit()
@@ -126,6 +129,15 @@ export function BookingWizard() {
         <p className="mt-1 mb-6 text-base text-[#4a5d56]">
           {state.step === "time" && state.date ? `${keyLabel(state.date)} · ${heading.sub}` : heading.sub}
         </p>
+
+        {lost && state.date && (
+          <LostChoiceNotice
+            lost={lost}
+            date={state.date}
+            slotStart={state.slotStart}
+            onChoose={state.step === "time" && lost === "slot" ? undefined : () => dispatch({ type: "slotLost", resetDate: lost === "day" })}
+          />
+        )}
 
         {availability.isError && <ErrorState error={availability.error} onRetry={() => availability.refetch()} />}
 
@@ -157,13 +169,13 @@ export function BookingWizard() {
         {state.step === "time" && day && (
           <TimePicker
             slots={day.slots}
-            selected={state.slotStart}
+            selected={slot?.state === "open" ? state.slotStart : undefined}
             onSelect={(slotStart) => dispatch({ type: "pickSlot", slotStart })}
           />
         )}
 
         {state.step === "details" && (
-          <DetailsForm initial={state.details ?? draft ?? undefined} agreed={agreed} onSubmit={onDetails} />
+          <DetailsForm initial={state.details ?? loadDraft() ?? undefined} agreed={agreed} onSubmit={onDetails} />
         )}
 
         {state.step === "review" && state.slotStart && state.details && (
@@ -196,6 +208,42 @@ export function BookingWizard() {
           </Button>
         </div>
       </Surface>
+    </div>
+  )
+}
+
+/** A gentle heads-up when their chosen time was taken by someone else meanwhile. */
+function LostChoiceNotice({
+  lost,
+  date,
+  slotStart,
+  onChoose,
+}: {
+  lost: Exclude<Lost, null>
+  date: string
+  slotStart?: string
+  onChoose?: () => void
+}) {
+  const time = slotStart ? fmt.time(slotStart) : "that time"
+  const message =
+    lost === "day"
+      ? `Sorry, ${keyLabel(date)} is no longer available. Please choose another Thursday.`
+      : `Sorry, someone has just booked ${time} on ${keyLabel(date)}. Please choose another time.` +
+        (onChoose ? "" : " The times still open are shown below.")
+  return (
+    <div
+      role="status"
+      className="mb-6 flex flex-col gap-3 rounded-2xl bg-warning-soft px-4 py-3.5 text-[15px] text-warning-foreground sm:flex-row sm:items-center sm:justify-between"
+    >
+      <p className="flex gap-2.5">
+        <InfoIcon className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+        <span>{message}</span>
+      </p>
+      {onChoose && (
+        <Button variant="outline" className="shrink-0 bg-card" onClick={onChoose}>
+          {lost === "day" ? "Choose another Thursday" : "Choose another time"}
+        </Button>
+      )}
     </div>
   )
 }

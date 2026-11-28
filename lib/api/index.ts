@@ -1,14 +1,13 @@
-import type { Api } from "@/lib/api/contracts"
-import { mockApi } from "@/lib/api/mock"
+import { adapterApi } from "@/lib/api/adapter"
 
 /**
- * Picks the API adapter. Today only `mock` exists; when the FastAPI
- * backend is ready, add `lib/api/live` (calling Next.js route handlers that
- * forward the session cookie) and switch with NEXT_PUBLIC_API_MODE=live.
+ * The API adapter, chosen at build time with NEXT_PUBLIC_API_MODE:
+ * - `mock` (default): demo data kept in this browser, no backend needed.
+ * - `live`: the FastAPI backend, through this site's /api bridge (API_URL).
  */
-export const API_MODE = process.env.NEXT_PUBLIC_API_MODE ?? "mock"
+export const API_MODE = process.env.NEXT_PUBLIC_API_MODE === "live" ? "live" : "mock"
 export const isMockApi = API_MODE === "mock"
 
-export const defaultApi: Api = mockApi
+export const defaultApi = adapterApi
 
 export type { Api } from "@/lib/api/contracts"

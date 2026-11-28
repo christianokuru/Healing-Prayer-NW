@@ -50,7 +50,7 @@ export function sessionIcs(opts: { id: string; start: string; online: boolean; z
 const csvCell = (v: unknown) => {
   const s = v == null ? "" : String(v)
   // Neutralise spreadsheet formula injection and quote everything.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
   return `"${safe.replace(/"/g, '""')}"`
 }
 

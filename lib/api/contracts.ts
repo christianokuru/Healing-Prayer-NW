@@ -13,8 +13,8 @@ import type {
 
 /**
  * The frontend depends only on these interfaces (Dependency Inversion).
- * `mock/` implements them today; a `live/` adapter that calls the
- * Next.js server (which forwards the FastAPI session cookie) replaces it later.
+ * `mock/` implements them in the browser (demo mode); `live/` calls FastAPI
+ * through this site's /api bridge, which forwards the session cookie.
  */
 
 /* ---------- Prayer minister sign-in ---------- */

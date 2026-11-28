@@ -17,6 +17,9 @@ import type { AdminBooking } from "@/lib/domain/types"
 
 import { useApprove, useDecline, useRevertDecision } from "../hooks"
 
+/** The API holds decision emails for 10 seconds, so Undo stays up that long. */
+const UNDO_MS = 10_000
+
 const firstName = (b: AdminBooking) => b.visitor.fullName.split(" ")[0]
 const isZoomUrl = (v: string) => /^https:\/\/[^\s]+$/i.test(v.trim())
 
@@ -55,6 +58,7 @@ export function DecisionButtons({
         setDialog(null)
         toast.success(`Approved. ${firstName(booking)} will get a confirmation email.`, {
           action: { label: "Undo", onClick: undo },
+          duration: UNDO_MS,
         })
       },
       (e) => toast.error(errorMessage(e))
@@ -67,6 +71,7 @@ export function DecisionButtons({
         setMessage("")
         toast.success(`Declined. ${firstName(booking)} will get a kind email letting them know.`, {
           action: { label: "Undo", onClick: undo },
+          duration: UNDO_MS,
         })
       },
       (e) => toast.error(errorMessage(e))

@@ -45,6 +45,8 @@ def deliver(email: OutboxEmail) -> None:
     message["From"] = settings.email_from
     message["To"] = email.recipient
     message["Subject"] = email.subject
+    if settings.email_reply_to:
+        message["Reply-To"] = settings.email_reply_to
     message.set_content(email.body)
     if email.ics:
         message.add_attachment(
@@ -53,8 +55,16 @@ def deliver(email: OutboxEmail) -> None:
             subtype="calendar",
             filename="prayer-session.ics",
         )
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
-        smtp.starttls(context=ssl.create_default_context())
+    context = ssl.create_default_context()
+    if settings.smtp_security == "ssl":
+        client = smtplib.SMTP_SSL(
+            settings.smtp_host, settings.smtp_port, timeout=20, context=context
+        )
+    else:
+        client = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
+    with client as smtp:
+        if settings.smtp_security == "starttls":
+            smtp.starttls(context=context)
         if settings.smtp_username and settings.smtp_password:
             smtp.login(
                 settings.smtp_username, settings.smtp_password.get_secret_value()

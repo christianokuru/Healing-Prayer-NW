@@ -5,8 +5,9 @@ Visitors book **without an account** (many are elderly): name, email, phone, pra
 Everything after that happens by email, and each email carries a private "manage my booking" link.
 Only the prayer minister signs in.
 
-- **Frontend:** this folder (Next.js 16 + shadcn/ui). Until it is connected to the API, it runs against a
-  **mock API in the browser**, so every screen works end to end.
+- **Frontend:** this folder (Next.js 16 + shadcn/ui). It runs in one of two modes:
+  - **mock** (default): demo data kept in the browser, no backend needed.
+  - **live**: the real FastAPI backend, reached through this site's `/api` bridge.
 - **Backend:** [`backend/`](backend/README.md) (FastAPI + PostgreSQL).
 
 ## Run it
@@ -20,9 +21,19 @@ npm run lint
 npm run typecheck
 ```
 
+### Live mode (with the backend)
+
+1. Start the backend, its database and the email worker (see [`backend/README.md`](backend/README.md)).
+2. `cp .env.example .env.local` and set `NEXT_PUBLIC_API_MODE=live` (and `API_URL` if FastAPI isn't on `127.0.0.1:8000`).
+3. Set the backend's `FRONTEND_URL` to this site's exact origin (for example `http://localhost:3000`).
+   The API refuses writes from any other origin.
+4. `npm run dev`. Create the minister's login with the backend's seed script.
+
+`NEXT_PUBLIC_API_MODE` is read at build time, so rebuild after changing it.
+
 ### Demo (mock mode only)
 
-- **Visitors:** just book at `/`. No email is really sent, so the success page links straight to the
+- **Visitors:** just book at `/book`. No email is really sent, so the success page links straight to the
   manage page the email would open.
 - **Prayer minister:** `/login` with `janis@example.com` / `admin-demo-1` (one-tap button on the page).
 
@@ -66,7 +77,9 @@ lib/
   config/            Ministry constants (schedule, address, limits)
   domain/            Types, booking rules, Calgary time — pure and unit-tested
   api/contracts.ts   The API interfaces the UI depends on
-  api/mock/          Browser mock implementation (the only thing to replace)
+  api/mock/          Browser mock implementation (demo mode)
+  api/live/          Calls FastAPI through /api (live mode)
+app/api/[...path]/   Same-origin bridge to FastAPI
   query/keys.ts      TanStack Query keys
 proxy.ts             Keeps /admin behind the minister's login (role cookie)
 public/sw.js         Removes the old service worker (keep for a few months)
@@ -77,18 +90,23 @@ public/sw.js         Removes the old service worker (keep for a few months)
 - **Rendering:** every route prerenders a static shell (Cache Components), and data streams in on the client, so navigation is instant.
 - **Errors:** every adapter throws `ApiError { code, message }`, which matches the agreed single error format.
 
-## Connecting the FastAPI backend
+## How the frontend reaches the API (live mode)
 
-1. Create `lib/api/live/` implementing `AuthApi`, `VisitorApi` and `AdminApi` from `lib/api/contracts.ts`.
-   Call Next.js route handlers (e.g. `app/api/[...path]/route.ts`) that forward the FastAPI **session cookie**, so the browser never talks to FastAPI directly.
-2. Generate types from FastAPI's OpenAPI spec (e.g. `openapi-typescript`) and map them to `lib/domain/types.ts`.
-3. On login, set the httpOnly session cookie **and** the non-sensitive `hpn_role` cookie (`lib/auth/session-cookie.ts`) that `proxy.ts` reads.
-4. Set `NEXT_PUBLIC_API_MODE=live` and point `defaultApi` in `lib/api/index.ts` at the live adapter.
-5. Map backend error codes to `ApiErrorCode` (`slot_taken`, `one_per_thursday`, …) so the UI messages keep working.
+- The browser only talks to this site. `app/api/[...path]/route.ts` forwards `/api/*` to FastAPI (`API_URL`),
+  so the httpOnly session cookie stays first-party and no CORS is needed.
+- The bridge only forwards the API's own areas (`auth`, `availability`, `bookings`, `manage`, `admin`), only the
+  session cookie and a few headers, caps bodies at 64 KB, and passes the visitor's IP on in `X-Forwarded-For`.
+- **Production:** the proxy in front of Next.js (Vercel, or Caddy/nginx on the VPS) must *replace*
+  `X-Forwarded-For` with the visitor's IP rather than trust what the browser sent (Caddy and Vercel do this by
+  default). Run FastAPI with `--forwarded-allow-ips` set to the Next.js server's address, so the rate limits
+  see each visitor separately.
+- The booking page re-checks free times every 10 seconds (`SCHEDULE.slotPollSeconds`) using the API's ETag,
+  so unchanged answers cost almost nothing. If someone else takes the chosen time, the visitor is told kindly
+  and keeps what they typed.
+- Login sets FastAPI's httpOnly cookie plus the small `hpn_role` hint cookie that `proxy.ts` reads.
+  Real authorization always happens in the API.
 
 ## Waiting on the client
 
-- Public pages (home, about, etc.) — for now `proxy.ts` sends `/` to `/login`, or to the dashboard when signed in.
-- Privacy notice and booking terms (`app/(auth)/privacy/page.tsx` is a placeholder).
-- Contact email (`MINISTRY.contactEmail`).
-- Brown dark mode (planned).
+- Janis reviews the privacy notice wording, then set `PRIVACY.reviewed: true` (`lib/config/ministry.ts`).
+- The ministry's real contact email: `MINISTRY.contactEmail` here and `EMAIL_REPLY_TO` in the backend.

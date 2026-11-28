@@ -16,7 +16,11 @@ uv run fastapi dev               # http://127.0.0.1:8000, docs at /docs
 uv run python -m app.worker      # separate terminal: emails and daily jobs
 ```
 
-Without `SMTP_HOST` the worker prints emails, including visitors' manage links.
+Without `SMTP_HOST` the worker prints emails, including visitors' manage links. To see real
+emails (with the calendar attachment), point it at a local mail catcher such as Mailpit:
+`SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025`, `SMTP_SECURITY=none` (development only).
+
+Tests never read your `.env`.
 
 Checks: `uv run pytest`, `uv run ruff check .`, `uv run ty check`. Tests use (and wipe)
 a separate `hpn_test` database; override it with `TEST_DATABASE_URL`.
@@ -103,8 +107,10 @@ app/emails.py   queues emails      app/worker.py   sends them, daily jobs
 ## Production
 
 - Set every variable in `.env.example`, with `ENVIRONMENT=production`,
-  `COOKIE_SECURE=true`, SMTP (STARTTLS) and a random `SECRET_KEY`.
+  `COOKIE_SECURE=true`, SMTP (`SMTP_SECURITY=starttls` or `ssl`), `EMAIL_REPLY_TO` (the
+  ministry's inbox, so visitors' replies reach a person) and a random `SECRET_KEY`.
 - `uv run alembic upgrade head`, then `uv run fastapi run` and `uv run python -m app.worker`.
 - Create the admin with `uv run python -m app.seed --admin`.
-- Rate limits use the client IP. Have Next.js forward `X-Forwarded-For` and set
-  `FORWARDED_ALLOW_IPS` to its address, or all visitors share one IP allowance.
+- Rate limits use the client IP. The Next.js `/api` bridge forwards `X-Forwarded-For`; set
+  `FORWARDED_ALLOW_IPS` (or `--forwarded-allow-ips`) to the Next.js server's address, or all
+  visitors share one IP allowance.

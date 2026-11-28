@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useUser } from "@/features/auth/hooks"
 import { errorMessage } from "@/lib/api/errors"
-import { LIMITS } from "@/lib/config/ministry"
+import { LIMITS, MINISTRY } from "@/lib/config/ministry"
 import { fmt } from "@/lib/domain/time"
 import type { AdminBooking } from "@/lib/domain/types"
 
@@ -31,7 +31,7 @@ export function followUpDraft(booking: AdminBooking, signOff: string) {
       `We missed you at your prayer session on ${fmt.dateLong(booking.slotStart)} at ${fmt.time(booking.slotStart)}, and we hope you're well.`,
       "",
       "Is everything all right? If anything kept you away, we'd be glad to hear from you. You're always welcome to book another Thursday whenever you're ready" +
-        (site ? `: ${site}` : "."),
+        (site ? `: ${site}/book` : "."),
       "",
       "With love and prayers,",
       signOff,
@@ -60,8 +60,8 @@ export function FollowUpDialog({ booking, open, onOpenChange }: FollowUpDialogPr
       title={`Email ${name}`}
       description={
         <>
-          To <strong className="text-foreground">{booking.visitor.email}</strong>. Replies come back to the
-          ministry&apos;s email.
+          To <strong className="text-foreground">{booking.visitor.email}</strong>. Replies go to{" "}
+          {MINISTRY.contactEmail}.
         </>
       }
       confirmLabel="Send email"

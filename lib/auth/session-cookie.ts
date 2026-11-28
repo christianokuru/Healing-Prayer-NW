@@ -5,8 +5,8 @@ import type { Role } from "@/lib/domain/types"
  * prayer minister is signed in, so it can redirect before rendering.
  * It is an *optimistic* hint: real authorization always happens in the API.
  *
- * Mock mode: set from the browser. Live mode: the Next.js server sets it
- * next to the httpOnly FastAPI session cookie at login.
+ * Set from the browser in both modes, kept in step with what the API says
+ * (in live mode, next to FastAPI's httpOnly session cookie).
  */
 export const ROLE_COOKIE = "hpn_role"
 

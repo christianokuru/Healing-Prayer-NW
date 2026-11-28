@@ -17,8 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useLogout, useSession } from "@/features/auth/hooks"
-import { isMockApi } from "@/lib/api"
-import { resetMockData } from "@/lib/api/mock"
+import { demoTools } from "@/lib/api/adapter"
 import { writeRoleCookie } from "@/lib/auth/session-cookie"
 
 interface UserMenuProps {
@@ -35,7 +34,7 @@ export function UserMenu({ tone = "dark", showName = true }: UserMenuProps) {
   if (!user) return <Skeleton className="size-10 rounded-full" />
 
   const resetDemo = () => {
-    resetMockData()
+    demoTools?.reset()
     writeRoleCookie(null)
     router.replace("/login")
     setTimeout(() => queryClient.clear(), 50)
@@ -70,7 +69,7 @@ export function UserMenu({ tone = "dark", showName = true }: UserMenuProps) {
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        {isMockApi && (
+        {demoTools && (
           <DropdownMenuItem className="h-10 gap-2.5 px-2.5 text-[15px]" onClick={resetDemo}>
             <RotateCcwIcon className="size-4" aria-hidden="true" /> Reset demo data
           </DropdownMenuItem>

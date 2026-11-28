@@ -48,7 +48,8 @@ function attendance(bookings: AdminBooking[], now: Date) {
   const recent = bookings.filter((b) => new Date(b.slotStart).getTime() >= since && new Date(b.slotStart) <= now)
   const done = recent.filter((b) => b.status === "attended").length
   const missed = recent.filter((b) => b.status === "no_show").length
-  return { rate: done + missed ? Math.round((done / (done + missed)) * 100) : 100, missed }
+  // No marked sessions yet: no rate, rather than a made-up 100%.
+  return { rate: done + missed ? Math.round((done / (done + missed)) * 100) : null, missed }
 }
 
 export function AdminOverview() {
@@ -145,8 +146,8 @@ export function AdminOverview() {
             />
             <StatTile
               label="Attendance · 90 days"
-              value={`${att.rate}%`}
-              unit="showed up"
+              value={att.rate === null ? "—" : `${att.rate}%`}
+              unit={att.rate === null ? "nothing marked yet" : "showed up"}
               footer={
                 <span className={cn(toMarkCount ? "font-semibold text-warning-foreground" : "text-muted-foreground")}>
                   {toMarkCount ? `${toMarkCount} not marked yet` : `${att.missed} didn't come`}

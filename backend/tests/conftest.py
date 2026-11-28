@@ -15,6 +15,11 @@ os.environ.update(
     SMTP_HOST="",
 )
 
+# A developer's own .env (real SMTP, their database) must never leak into tests.
+from app.config import Settings  # noqa: E402
+
+Settings.model_config["env_file"] = None
+
 # ruff: noqa: E402
 import datetime as dt
 from dataclasses import dataclass

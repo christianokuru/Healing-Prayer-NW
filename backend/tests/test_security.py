@@ -151,6 +151,7 @@ def test_unsafe_production_settings_are_refused():
         "frontend_url": "https://site.example",
         "cookie_secure": True,
         "smtp_host": "smtp.example",
+        "email_reply_to": "prayer@site.example",
         "allowed_hosts": ["api.site.example"],
     }
     Settings.model_validate(safe)
@@ -160,6 +161,72 @@ def test_unsafe_production_settings_are_refused():
         {"secret_key": "change-me-to-a-long-random-string-please"},
         {"allowed_hosts": ["*"]},
         {"smtp_host": None},
+        {"smtp_security": "none"},
+        {"email_reply_to": None},
     ):
         with pytest.raises(ValidationError):
             Settings.model_validate(safe | unsafe)
+
+
+class _FakeSMTP:
+    """Records what the worker does with the SMTP connection."""
+
+    instances: list["_FakeSMTP"] = []
+
+    def __init__(self, host, port, timeout=None, context=None) -> None:
+        self.calls: list[str] = [type(self).__name__]
+        self.sent = None
+        _FakeSMTP.instances.append(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def starttls(self, context=None):
+        self.calls.append("starttls")
+
+    def login(self, *_):
+        self.calls.append("login")
+
+    def send_message(self, message):
+        self.sent = message
+
+
+class _FakeSMTPSSL(_FakeSMTP):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("security", "expected"),
+    [
+        ("starttls", ["_FakeSMTP", "starttls"]),
+        ("ssl", ["_FakeSMTPSSL"]),
+        ("none", ["_FakeSMTP"]),
+    ],
+)
+def test_email_delivery_uses_the_chosen_security(monkeypatch, security, expected):
+    from app import worker
+    from app.config import get_settings
+    from app.models import OutboxEmail
+
+    settings = get_settings().model_copy(
+        update={
+            "smtp_host": "smtp.example",
+            "smtp_security": security,
+            "email_reply_to": "prayer@site.example",
+        }
+    )
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker.smtplib, "SMTP", _FakeSMTP)
+    monkeypatch.setattr(worker.smtplib, "SMTP_SSL", _FakeSMTPSSL)
+    _FakeSMTP.instances.clear()
+
+    worker.deliver(OutboxEmail(recipient="ann@example.com", subject="Hi", body="Hello"))
+
+    smtp = _FakeSMTP.instances[-1]
+    assert smtp.calls == expected
+    # Replies reach the ministry's inbox, not the no-reply sender.
+    assert smtp.sent is not None
+    assert smtp.sent["Reply-To"] == "prayer@site.example"

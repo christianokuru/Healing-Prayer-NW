@@ -62,7 +62,7 @@ export function BlockDayControls({ date, blocked, affected }: BlockDayControlsPr
         description={
           affected === 0
             ? "Nobody is booked yet. Visitors simply won't be able to choose this date."
-            : `${affected} ${affected === 1 ? "person is" : "people are"} booked. Each will get an email saying this Thursday is cancelled, with a link to choose another date.`
+            : `${affected} ${affected === 1 ? "person is" : "people are"} booked. Each will get an email straight away saying this Thursday is cancelled, with a link to choose another date. This can't be undone.`
         }
         confirmLabel="Yes, cancel this Thursday"
         cancelLabel="Keep it"
@@ -74,9 +74,13 @@ export function BlockDayControls({ date, blocked, affected }: BlockDayControlsPr
               onSuccess: ({ affected: n }) => {
                 setOpen(false)
                 setReason("")
-                toast.success(`${label} is cancelled.${n ? ` ${n} ${n === 1 ? "visitor" : "visitors"} will be emailed.` : ""}`, {
-                  action: { label: "Undo", onClick: restore },
-                })
+                // Their cancellation emails go out at once and their bookings stay
+                // cancelled, so Undo is only honest when nobody was booked.
+                if (n) {
+                  toast.success(`${label} is cancelled. ${n} ${n === 1 ? "visitor has" : "visitors have"} been emailed.`)
+                } else {
+                  toast.success(`${label} is cancelled.`, { action: { label: "Undo", onClick: restore } })
+                }
               },
               onError: (e) => toast.error(errorMessage(e)),
             }

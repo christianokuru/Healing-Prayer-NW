@@ -71,11 +71,17 @@ def _admin_emails(session: Session) -> list[str]:
     return list(session.exec(select(User.email).where(User.role == Role.admin)))
 
 
-def _where(booking: Booking) -> str:
+def _place(booking: Booking) -> str:
+    """Where the session happens, as a calendar location."""
     if booking.mode is Mode.online:
-        return f"Online: {booking.zoom_link}"
-    address = get_settings().ministry_address
-    return f"Address: {address}" if address else "Alberta Bible College, Calgary"
+        return booking.zoom_link or "Online (Zoom)"
+    return get_settings().ministry_address or "Alberta Bible College, Calgary"
+
+
+def _where(booking: Booking) -> str:
+    """The same, with a label, for the email text."""
+    label = "Online" if booking.mode is Mode.online else "Address"
+    return f"{label}: {_place(booking)}"
 
 
 def _manage(booking: Booking) -> str:
@@ -119,7 +125,7 @@ def _ics(booking: Booking) -> str:
         f"DTSTART:{stamp(booking.slot_start)}",
         f"DTEND:{stamp(booking.slot_start + SESSION_LENGTH)}",
         "SUMMARY:Prayer session",
-        f"LOCATION:{_escape_ics(_where(booking))}",
+        f"LOCATION:{_escape_ics(_place(booking))}",
         "END:VEVENT",
         "END:VCALENDAR",
     ]

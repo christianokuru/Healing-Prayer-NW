@@ -21,9 +21,15 @@ class Settings(BaseSettings):
 
     smtp_host: str | None = None
     smtp_port: int = 587
+    # "starttls" (port 587) or "ssl" (port 465). "none" is only for a local
+    # mail catcher in development: it sends passwords and emails unencrypted.
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
     smtp_username: str | None = None
     smtp_password: SecretStr | None = None
     email_from: str = "no-reply@example.com"
+    # Where visitors' replies go (the ministry's real inbox). Without it, a reply
+    # to a follow-up or confirmation would land in the no-reply mailbox.
+    email_reply_to: str | None = None
 
     @model_validator(mode="after")
     def check(self) -> Self:
@@ -40,6 +46,10 @@ class Settings(BaseSettings):
                 raise ValueError("COOKIE_SECURE must be true in production")
             if not self.smtp_host:
                 raise ValueError("SMTP_HOST is required in production")
+            if not self.email_reply_to:
+                raise ValueError("EMAIL_REPLY_TO is required in production")
+            if self.smtp_security == "none":
+                raise ValueError("SMTP_SECURITY must be starttls or ssl in production")
         self.frontend_url = self.frontend_url.rstrip("/")
         return self
 

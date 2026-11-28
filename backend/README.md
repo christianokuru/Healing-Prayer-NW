@@ -4,11 +4,12 @@ FastAPI + SQLModel + PostgreSQL, implementing the backend handoff spec.
 
 ## Run it
 
-Needs [uv](https://docs.astral.sh/uv/) and Docker. From this folder:
+Needs [uv](https://docs.astral.sh/uv/) and Docker. The database runs from the `compose.yaml`
+at the repository root (see the root README to run the whole site in Docker instead). From this folder:
 
 ```bash
 cp .env.example .env
-docker compose up -d --wait
+docker compose -f ../compose.yaml up -d --wait   # database only, on 127.0.0.1:5433
 uv sync
 uv run alembic upgrade head
 uv run python -m app.seed        # demo accounts, development only

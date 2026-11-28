@@ -1,0 +1,13 @@
+# Only what the image needs: secrets, caches and tests stay out.
+.env
+.env.*
+!.env.example
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.claude
+tests
+scripts
+compose.yaml
+README.md

@@ -1,0 +1,86 @@
+# The whole site, one container per job, started from this one file.
+#
+#   docker compose up -d                     only the database (for `npm run dev` + `uv run fastapi dev`)
+#   docker compose --profile app up -d --build   everything: database, API, email worker and website
+#
+# Local use only: production adds HTTPS (Caddy) and off-site backups on the VPS.
+
+name: healing-prayer-nw
+
+x-backend: &backend
+  image: healing-prayer-nw/backend
+  build: ./backend
+  profiles: [app]
+  restart: unless-stopped
+  # Secrets and settings (SECRET_KEY, SMTP, EMAIL_REPLY_TO …) come from backend/.env.
+  env_file:
+    - path: backend/.env
+      required: true
+  environment:
+    # Inside Docker the database and API have their own names on the private network.
+    DATABASE_URL: postgresql+psycopg://hpn:hpn@db:5432/hpn
+    ALLOWED_HOSTS: '["api","localhost","127.0.0.1"]'
+    FRONTEND_URL: http://localhost:3000
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hpn
+      POSTGRES_PASSWORD: hpn
+      POSTGRES_DB: hpn
+    # Only this computer can reach it (for the backend run outside Docker, tests and DBeaver).
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hpn"]
+      interval: 2s
+      retries: 20
+
+  # Runs once: brings the tables up to date and adds the demo login (development only).
+  migrate:
+    <<: *backend
+    restart: "no"
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed"]
+    healthcheck:
+      disable: true
+
+  api:
+    <<: *backend
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: healing-prayer-nw/web
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_MODE: live
+    profiles: [app]
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:

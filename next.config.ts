@@ -32,6 +32,8 @@ const securityHeaders = [
 ]
 
 const nextConfig: NextConfig = {
+  // A self-contained server for the Docker image (Vercel ignores this).
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,

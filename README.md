@@ -21,6 +21,22 @@ npm run lint
 npm run typecheck
 ```
 
+### Everything in Docker (one command)
+
+`compose.yaml` at the root runs each part in its own container: database, API, email worker
+and website. One-time: `cp backend/.env.example backend/.env` (it holds the backend's settings).
+
+```bash
+docker compose --profile app up -d --build   # build and start everything: http://localhost:3000
+docker compose --profile app ps              # what's running, and whether it's healthy
+docker compose logs -f worker                # the emails the worker "sends" (printed in development)
+docker compose --profile app down            # stop everything (data is kept)
+```
+
+The first run creates the tables and the demo login `janis@example.com` / `admin-demo-1`.
+`docker compose up -d` (without `--profile app`) starts only the database, for the setup below.
+While the full stack is up, don't also run `npm run dev` or `uv run fastapi dev`: they use the same ports.
+
 ### Live mode (with the backend)
 
 1. Start the backend, its database and the email worker (see [`backend/README.md`](backend/README.md)).

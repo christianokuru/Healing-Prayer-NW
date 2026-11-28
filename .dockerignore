@@ -1,0 +1,13 @@
+# Only the website's source goes into its image.
+node_modules
+.next
+.git
+.claude
+backend
+docs
+# Local settings and secrets: the mode is a build argument, API_URL comes from compose.
+.env*
+!.env.example
+*.tsbuildinfo
+Dockerfile
+compose.yaml

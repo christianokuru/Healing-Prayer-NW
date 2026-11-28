@@ -7,9 +7,11 @@
 
 name: healing-prayer-nw
 
+# Shared by migrate, api and worker. Only `api` builds the image; the other two reuse it
+# (pull_policy: never), so it is built once instead of three times.
 x-backend: &backend
   image: healing-prayer-nw/backend
-  build: ./backend
+  pull_policy: never
   profiles: [app]
   restart: unless-stopped
   # Secrets and settings (SECRET_KEY, SMTP, EMAIL_REPLY_TO …) come from backend/.env.
@@ -53,6 +55,7 @@ services:
 
   api:
     <<: *backend
+    build: ./backend
     depends_on:
       migrate:
         condition: service_completed_successfully

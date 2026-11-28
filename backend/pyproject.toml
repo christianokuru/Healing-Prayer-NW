@@ -1,0 +1,39 @@
+[project]
+name = "healing-prayer-api"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "fastapi[standard]>=0.165.0",
+    "psycopg[binary]>=3.3.9",
+    "pwdlib[argon2]>=0.4.2",
+    "pydantic-settings>=2.16.3",
+    "sqlmodel>=0.0.50",
+    "tzdata>=2026.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+    "ty>=0.0.108",
+]
+
+[tool.fastapi]
+entrypoint = "app.main:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "FAST", "S"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S"]
+"app/seed.py" = ["S105", "S106"]
+"app/errors.py" = ["S105"]

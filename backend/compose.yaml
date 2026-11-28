@@ -1,0 +1,18 @@
+# Local development database only.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hpn
+      POSTGRES_PASSWORD: hpn
+      POSTGRES_DB: hpn
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hpn"]
+      interval: 2s
+      retries: 20
+volumes:
+  db-data:

@@ -1,0 +1,2 @@
+# The FastAPI backend is deployed separately (VPS + Docker), never to Vercel.
+backend

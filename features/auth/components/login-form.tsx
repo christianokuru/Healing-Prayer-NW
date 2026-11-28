@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form"
 
 import { FormError, PasswordField, TextField } from "@/components/forms/field"
 import { SubmitButton } from "@/components/forms/submit-button"
-import { errorMessage, isApiError } from "@/lib/api/errors"
+import { errorMessage } from "@/lib/api/errors"
 import { postLoginPath } from "@/lib/auth/safe-redirect"
 
 import { useLogin } from "../hooks"
@@ -25,14 +25,7 @@ export function LoginForm() {
   const { errors } = form.formState
 
   const onSubmit = form.handleSubmit((values) =>
-    login.mutate(values, {
-      onSuccess: (user) => router.replace(postLoginPath(user.role, params.get("next"))),
-      onError: (e) => {
-        if (isApiError(e) && e.code === "email_not_verified") {
-          router.push(`/verify-email?email=${encodeURIComponent(values.email)}`)
-        }
-      },
-    })
+    login.mutate(values, { onSuccess: () => router.replace(postLoginPath(params.get("next"))) })
   )
 
   return (
@@ -63,9 +56,9 @@ export function LoginForm() {
         </SubmitButton>
       </form>
       <p className="mt-6 text-center text-[15px] text-[#44564f]">
-        New here?{" "}
-        <Link href="/signup" className="font-semibold text-primary-strong hover:underline">
-          Create an account
+        Looking to book a prayer session?{" "}
+        <Link href="/book" className="font-semibold text-primary-strong hover:underline">
+          Book here, no account needed
         </Link>
       </p>
       <DemoAccounts

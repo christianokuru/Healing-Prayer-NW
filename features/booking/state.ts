@@ -1,12 +1,19 @@
-import type { AttendanceMode, Booking, PrayerTopic } from "@/lib/domain/types"
+import type { CreatedBooking } from "@/lib/api/contracts"
 
 export type WizardStep = "day" | "time" | "details" | "review" | "done"
 
+export const STEPS: WizardStep[] = ["day", "time", "details", "review"]
+
 export interface BookingDetails {
-  topic: PrayerTopic
+  fullName: string
+  email: string
+  phone: string
   prayerPoints: string
-  mode: AttendanceMode
+  /** "I can't come in person, please join by Zoom." */
+  online: boolean
   onlineReason: string
+  /** Honeypot: hidden from people, filled in by bots. */
+  website: string
 }
 
 export interface WizardState {
@@ -14,7 +21,7 @@ export interface WizardState {
   date?: string
   slotStart?: string
   details?: BookingDetails
-  result?: Booking
+  result?: CreatedBooking
 }
 
 export type WizardAction =
@@ -22,13 +29,10 @@ export type WizardAction =
   | { type: "pickSlot"; slotStart: string }
   | { type: "saveDetails"; details: BookingDetails }
   | { type: "goTo"; step: WizardStep }
-  | { type: "next"; steps: WizardStep[] }
-  | { type: "back"; steps: WizardStep[] }
-  | { type: "done"; result: Booking }
+  | { type: "next" }
+  | { type: "back" }
+  | { type: "done"; result: CreatedBooking }
   | { type: "slotLost"; resetDate?: boolean }
-
-export const stepsFor = (reschedule: boolean): WizardStep[] =>
-  reschedule ? ["day", "time", "review"] : ["day", "time", "details", "review"]
 
 /** Pure reducer: every wizard transition lives here and is easy to test. */
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
@@ -42,12 +46,12 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case "goTo":
       return { ...state, step: action.step }
     case "next": {
-      const i = action.steps.indexOf(state.step)
-      return { ...state, step: action.steps[Math.min(i + 1, action.steps.length - 1)] }
+      const i = STEPS.indexOf(state.step)
+      return { ...state, step: STEPS[Math.min(i + 1, STEPS.length - 1)] }
     }
     case "back": {
-      const i = action.steps.indexOf(state.step)
-      return { ...state, step: action.steps[Math.max(i - 1, 0)] }
+      const i = STEPS.indexOf(state.step)
+      return { ...state, step: STEPS[Math.max(i - 1, 0)] }
     }
     case "done":
       return { ...state, step: "done", result: action.result }

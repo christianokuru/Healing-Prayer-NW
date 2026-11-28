@@ -11,6 +11,7 @@ import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUser } from "@/features/auth/hooks"
+import { InstallAppCard } from "@/features/pwa/install-app-card"
 import { useNow } from "@/hooks/use-now"
 import { SCHEDULE } from "@/lib/config/ministry"
 import { isActive } from "@/lib/domain/booking-rules"
@@ -18,7 +19,15 @@ import { HOUR_MS, dateKey, fmt, greetingFor, keyLabel, monthKey, relativeDays, s
 import type { AdminBooking, BlockedDate } from "@/lib/domain/types"
 
 import { useAdminBookings, useBlockedDates } from "../hooks"
-import { attendanceToMark, bookingsOnDay, currentSessionDay, daySlots, pendingRequests, urgencyOf } from "../selectors"
+import {
+  attendanceDays,
+  bookingsOnDay,
+  currentSessionDay,
+  daySlots,
+  pendingRequests,
+  unmarkedCount,
+  urgencyOf,
+} from "../selectors"
 import { AttendanceCard } from "./attendance-card"
 import { DaySchedule } from "./day-schedule"
 import { RequestCard } from "./request-card"
@@ -50,8 +59,8 @@ export function AdminOverview() {
 
   const all = bookings.data ?? []
   const pending = pendingRequests(all, now)
-  const toMark = attendanceToMark(all, now)
-  const toMarkCount = toMark.reduce((n, d) => n + d.bookings.length, 0)
+  const toMark = attendanceDays(all, now)
+  const toMarkCount = unmarkedCount(all, now)
   const urgent = pending.filter((b) => urgencyOf(b.slotStart, now) === "urgent").length
   const today = currentSessionDay(now)
   const isBlocked = !!blocked.data?.some((b) => b.date === today)
@@ -163,16 +172,12 @@ export function AdminOverview() {
             </Surface>
           )}
           {pending.map((b) => (
-            <RequestCard
-              key={b.id}
-              booking={b}
-              now={now}
-              original={b.rescheduleOfId ? all.find((x) => x.id === b.rescheduleOfId) : undefined}
-            />
+            <RequestCard key={b.id} booking={b} now={now} />
           ))}
         </section>
 
         <aside className="flex flex-col gap-6">
+          <InstallAppCard />
           <Surface>
             <SurfaceHeader
               title={dateKey(now) === today ? "Tonight" : "This Thursday"}

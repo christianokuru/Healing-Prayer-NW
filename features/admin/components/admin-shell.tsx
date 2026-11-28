@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "cn"
-import { CalendarDaysIcon, ChartColumnIcon, HistoryIcon, HouseIcon } from "lucide-react"
+import { CalendarDaysIcon, ChartColumnIcon, HistoryIcon, HouseIcon, NotebookPenIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type { ReactNode } from "react"
@@ -14,12 +14,13 @@ import { useSession } from "@/features/auth/hooks"
 import { useNow } from "@/hooks/use-now"
 
 import { useAdminBookings } from "../hooks"
-import { attendanceToMark, pendingRequests } from "../selectors"
+import { pendingRequests, unmarkedCount } from "../selectors"
 
 const BASE_NAV: NavItem[] = [
   { href: "/admin", label: "Overview", icon: HouseIcon, exact: true },
   { href: "/admin/calendar", label: "Calendar", icon: CalendarDaysIcon },
   { href: "/admin/history", label: "History", icon: HistoryIcon },
+  { href: "/admin/notes", label: "Notes", icon: NotebookPenIcon },
   { href: "/admin/analytics", label: "Analytics", icon: ChartColumnIcon },
 ]
 
@@ -29,8 +30,7 @@ function usePendingCount() {
   const now = useNow()
   const bookings = useAdminBookings()
   if (user?.role !== "admin" || !bookings.data) return 0
-  const toMark = attendanceToMark(bookings.data, now).reduce((n, d) => n + d.bookings.length, 0)
-  return pendingRequests(bookings.data, now).length + toMark
+  return pendingRequests(bookings.data, now).length + unmarkedCount(bookings.data, now)
 }
 
 function Sidebar({ items }: { items: NavItem[] }) {

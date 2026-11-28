@@ -2,64 +2,66 @@ import { addMonths, format } from "date-fns"
 
 import type { AdminApi } from "@/lib/api/contracts"
 import { ApiError } from "@/lib/api/errors"
-import { SCHEDULE } from "@/lib/config/ministry"
+import { LIMITS, SCHEDULE } from "@/lib/config/ministry"
 import {
   canApprove,
   canDecline,
   canMarkAttendance,
   canRevertDecision,
+  canSendFollowUp,
   isActive,
   needsAttendance,
+  personHasBookingOnDay,
+  slotIsFree,
 } from "@/lib/domain/booking-rules"
 import { dateKey, fmt, isSessionDay, monthKey, sessionDaysBetween } from "@/lib/domain/time"
-import type {
-  AdminBooking,
-  Booking,
-  PersonSummary,
-  PrayerTopic,
-} from "@/lib/domain/types"
+import type { AdminBooking, Booking, Note, PersonSummary } from "@/lib/domain/types"
 
 import { requireAdmin } from "./guards"
-import { latency, mockStore, type MockDbState } from "./store"
+import { latency, mockStore, newId, type MockBookingRecord, type MockDbState } from "./store"
 
 const nowIso = () => new Date().toISOString()
 
 const attended = (b: Booking) => b.status === "attended"
 
-function summarize(db: MockDbState, userId: string): PersonSummary {
-  const u = db.users.find((x) => x.id === userId)!
-  const mine = db.bookings.filter((b) => b.userId === userId)
+/** Strip mock-only fields (the manage token never reaches the admin UI). */
+const asBooking = ({ manageToken: _token, ...b }: MockBookingRecord): Booking => b
+
+function summarize(db: MockDbState, personId: string): PersonSummary {
+  const p = db.people.find((x) => x.id === personId)!
+  const mine = db.bookings.filter((b) => b.personId === personId)
   const done = mine.filter(attended).sort((a, b) => a.slotStart.localeCompare(b.slotStart))
-  const topicCount = new Map<PrayerTopic, number>()
-  done.forEach((b) => topicCount.set(b.topic, (topicCount.get(b.topic) ?? 0) + 1))
-  const topTopic = [...topicCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
   return {
-    id: u.id,
-    fullName: u.fullName,
-    email: u.email,
-    phone: u.phone,
+    id: p.id,
+    fullName: p.fullName,
+    email: p.email,
+    phone: p.phone,
     firstVisit: done[0]?.slotStart,
     lastVisit: done[done.length - 1]?.slotStart,
     completedCount: done.length,
     noShowCount: mine.filter((b) => b.status === "no_show").length,
-    topTopic,
   }
 }
 
-function toAdmin(db: MockDbState, b: Booking): AdminBooking {
-  const u = db.users.find((x) => x.id === b.userId)!
+function toAdmin(db: MockDbState, b: MockBookingRecord): AdminBooking {
+  const p = db.people.find((x) => x.id === b.personId)!
   return {
-    ...b,
-    visitor: { id: u.id, fullName: u.fullName, email: u.email, phone: u.phone },
-    visitCount: db.bookings.filter((x) => x.userId === u.id && attended(x)).length,
+    ...asBooking(b),
+    visitor: { id: p.id, fullName: p.fullName, email: p.email, phone: p.phone },
+    visitCount: db.bookings.filter((x) => x.personId === p.id && attended(x)).length,
   }
+}
+
+function withPersonName(db: MockDbState, n: Note): Note {
+  const person = n.personId ? db.people.find((p) => p.id === n.personId) : undefined
+  return { ...n, personName: person?.fullName }
 }
 
 function mutateBooking(
   id: string,
   guard: (b: Booking, now: Date) => boolean,
   failMessage: string,
-  apply: (b: Booking, db: MockDbState) => void
+  apply: (b: MockBookingRecord, db: MockDbState) => void
 ): AdminBooking {
   const now = new Date()
   return mockStore.write((db) => {
@@ -72,13 +74,18 @@ function mutateBooking(
   })
 }
 
-/** When a reschedule request is approved, the original session is released. */
-function settleReschedule(b: Booking, db: MockDbState) {
-  if (!b.rescheduleOfId) return
-  const original = db.bookings.find((x) => x.id === b.rescheduleOfId)
-  if (original && isActive(original)) {
-    original.status = "rescheduled"
-    original.updatedAt = nowIso()
+function cleanNote(body: string): string {
+  const text = body.trim()
+  if (!text) throw new ApiError("validation", "Please write something in the note.")
+  if (text.length > LIMITS.noteMax) {
+    throw new ApiError("validation", `Please keep notes under ${LIMITS.noteMax} characters.`)
+  }
+  return text
+}
+
+function assertPerson(db: MockDbState, personId?: string | null) {
+  if (personId && !db.people.some((p) => p.id === personId)) {
+    throw new ApiError("not_found", "We couldn't find that person.")
   }
 }
 
@@ -97,14 +104,13 @@ export const mockAdminApi: AdminApi = {
   async approve({ bookingId, zoomLink }) {
     await latency()
     requireAdmin()
-    return mutateBooking(bookingId, canApprove, "This request can no longer be approved.", (b, db) => {
+    return mutateBooking(bookingId, canApprove, "This request can no longer be approved.", (b) => {
       if (b.mode === "online") {
         const link = zoomLink?.trim()
         if (!link) throw new ApiError("validation", "Please add the Zoom link for this online session.")
         b.zoomLink = link
       }
       b.status = "confirmed"
-      settleReschedule(b, db)
     })
   },
 
@@ -121,11 +127,15 @@ export const mockAdminApi: AdminApi = {
     await latency(120, 240)
     requireAdmin()
     return mutateBooking(bookingId, canRevertDecision, "This can't be undone any more.", (b, db) => {
-      if (b.rescheduleOfId) {
-        const original = db.bookings.find((x) => x.id === b.rescheduleOfId)
-        if (original?.status === "rescheduled") original.status = "confirmed"
+      if (b.status === "declined") {
+        // The slot was released when declined, so it must still be free.
+        const others = db.bookings.filter((x) => x.id !== b.id)
+        if (!slotIsFree(others, b.slotStart) || personHasBookingOnDay(others, b.personId, dateKey(b.slotStart))) {
+          throw new ApiError("invalid_state", "That time is no longer available, so this can't be undone.")
+        }
       }
       b.status = "pending"
+      b.zoomLink = undefined
       b.declineMessage = undefined
     })
   },
@@ -139,6 +149,26 @@ export const mockAdminApi: AdminApi = {
       "Attendance can only be recorded for approved sessions that have started.",
       (b) => {
         b.status = attendance ?? "confirmed"
+      }
+    )
+  },
+
+  async sendFollowUp({ bookingId, subject, message }) {
+    await latency(300, 600)
+    requireAdmin()
+    if (!subject.trim() || !message.trim()) {
+      throw new ApiError("validation", "Please write a subject and a message.")
+    }
+    if (message.trim().length > LIMITS.followUpMax) {
+      throw new ApiError("validation", `Please keep the message under ${LIMITS.followUpMax} characters.`)
+    }
+    return mutateBooking(
+      bookingId,
+      (b) => canSendFollowUp(b),
+      "You can only email people who were marked as didn't come.",
+      (b) => {
+        // The live API queues the email; the demo just records that it went.
+        b.followUpSentAt = nowIso()
       }
     )
   },
@@ -184,10 +214,7 @@ export const mockAdminApi: AdminApi = {
     await latency()
     requireAdmin()
     return mockStore.read((db) =>
-      db.users
-        .filter((u) => u.role === "visitor")
-        .map((u) => summarize(db, u.id))
-        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+      db.people.map((p) => summarize(db, p.id)).sort((a, b) => a.fullName.localeCompare(b.fullName))
     )
   },
 
@@ -195,14 +222,19 @@ export const mockAdminApi: AdminApi = {
     await latency()
     requireAdmin()
     return mockStore.read((db) => {
-      if (!db.users.some((u) => u.id === personId && u.role === "visitor")) {
+      if (!db.people.some((p) => p.id === personId)) {
         throw new ApiError("not_found", "We couldn't find that person.")
       }
       return {
         ...summarize(db, personId),
         bookings: db.bookings
-          .filter((b) => b.userId === personId)
+          .filter((b) => b.personId === personId)
+          .map(asBooking)
           .sort((a, b) => b.slotStart.localeCompare(a.slotStart)),
+        notes: db.notes
+          .filter((n) => n.personId === personId)
+          .map((n) => withPersonName(db, n))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       }
     })
   },
@@ -235,11 +267,8 @@ export const mockAdminApi: AdminApi = {
         }
       })
 
-      const topicCounts = new Map<PrayerTopic, number>()
-      done.forEach((b) => topicCounts.set(b.topic, (topicCounts.get(b.topic) ?? 0) + 1))
-
       const people = new Map<string, number>()
-      done.forEach((b) => people.set(b.userId, (people.get(b.userId) ?? 0) + 1))
+      done.forEach((b) => people.set(b.personId, (people.get(b.personId) ?? 0) + 1))
 
       const frequent = [...people.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -257,11 +286,59 @@ export const mockAdminApi: AdminApi = {
         unmarked,
         onlineSessions: done.filter((b) => b.mode === "online").length,
         monthly,
-        topics: [...topicCounts.entries()]
-          .map(([topic, count]) => ({ topic, count }))
-          .sort((a, b) => b.count - a.count),
         frequent,
       }
+    })
+  },
+
+  async listNotes(options) {
+    await latency(120, 260)
+    requireAdmin()
+    return mockStore.read((db) =>
+      db.notes
+        .filter((n) => !options?.personId || n.personId === options.personId)
+        .map((n) => withPersonName(db, n))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    )
+  },
+
+  async createNote({ body, personId }) {
+    await latency()
+    requireAdmin()
+    return mockStore.write((db) => {
+      assertPerson(db, personId)
+      const note: Note = {
+        id: newId("n"),
+        body: cleanNote(body),
+        personId: personId || undefined,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      }
+      db.notes.push(note)
+      return withPersonName(db, note)
+    })
+  },
+
+  async updateNote(noteId, { body, personId }) {
+    await latency()
+    requireAdmin()
+    return mockStore.write((db) => {
+      const note = db.notes.find((n) => n.id === noteId)
+      if (!note) throw new ApiError("not_found", "That note no longer exists.")
+      assertPerson(db, personId)
+      note.body = cleanNote(body)
+      note.personId = personId || undefined
+      note.updatedAt = nowIso()
+      return withPersonName(db, note)
+    })
+  },
+
+  async deleteNote(noteId) {
+    await latency()
+    requireAdmin()
+    mockStore.write((db) => {
+      if (!db.notes.some((n) => n.id === noteId)) throw new ApiError("not_found", "That note no longer exists.")
+      db.notes = db.notes.filter((n) => n.id !== noteId)
     })
   },
 }

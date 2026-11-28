@@ -17,7 +17,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { useNow } from "@/hooks/use-now"
 import { HOUR_MS, fmt } from "@/lib/domain/time"
-import { modeLabel, topicLabel } from "@/lib/domain/topics"
+import { modeLabel } from "@/lib/domain/labels"
 import { downloadText, toCsv } from "@/lib/files"
 
 import { useAdminBookings } from "../hooks"
@@ -61,14 +61,13 @@ export function AdminHistory() {
 
   const exportCsv = () => {
     const csv = toCsv(
-      ["Date", "Time", "Visitor", "Email", "Phone", "Topic", "In person / online", "Attendance", "Prayer points"],
+      ["Date", "Time", "Name", "Email", "Phone", "In person / online", "Attendance", "Prayer points"],
       rows.map((b) => [
         fmt.dayMonthYear(b.slotStart),
         fmt.time(b.slotStart),
         b.visitor.fullName,
         b.visitor.email,
         b.visitor.phone,
-        topicLabel(b.topic),
         modeLabel(b.mode),
         ADMIN_LABEL[b.display] ?? adminStatusLabel(b.display),
         b.prayerPoints,
@@ -155,7 +154,8 @@ export function AdminHistory() {
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-semibold">{b.visitor.fullName}</span>
                         <span className="block text-[13px] text-muted-foreground">
-                          {fmt.dateShort(b.slotStart)} · {fmt.time(b.slotStart)} · {topicLabel(b.topic)}
+                          {fmt.dateShort(b.slotStart)} · {fmt.time(b.slotStart)}
+                          {b.mode === "online" ? " · Zoom" : ""}
                         </span>
                       </span>
                       <StatusBadge status={b.display} label={ADMIN_LABEL[b.display]} size="sm" />
@@ -169,10 +169,10 @@ export function AdminHistory() {
                   <thead>
                     <tr className="text-left text-xs tracking-wide text-muted-foreground uppercase">
                       <th scope="col" className="border-b border-border px-5 py-3.5 font-semibold">Date</th>
-                      <th scope="col" className="border-b border-border px-3 py-3.5 font-semibold">Visitor</th>
-                      <th scope="col" className="border-b border-border px-3 py-3.5 font-semibold">Topic</th>
-                      <th scope="col" className="border-b border-border px-3 py-3.5 font-semibold">Attended</th>
-                      <th scope="col" className="border-b border-border px-5 py-3.5 font-semibold">Status</th>
+                      <th scope="col" className="border-b border-border px-3 py-3.5 font-semibold">Name</th>
+                      <th scope="col" className="border-b border-border px-3 py-3.5 font-semibold">Email</th>
+                      <th scope="col" className="border-b border-border px-3 py-3.5 font-semibold">Where</th>
+                      <th scope="col" className="border-b border-border px-5 py-3.5 font-semibold">Attendance</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -191,7 +191,7 @@ export function AdminHistory() {
                             {b.visitor.fullName}
                           </button>
                         </td>
-                        <td className="px-3 py-3">{topicLabel(b.topic)}</td>
+                        <td className="max-w-56 truncate px-3 py-3 text-muted-foreground">{b.visitor.email}</td>
                         <td className="px-3 py-3">{b.mode === "online" ? "Zoom" : "In person"}</td>
                         <td className="px-5 py-3">
                           <StatusBadge status={b.display} label={ADMIN_LABEL[b.display]} size="sm" />

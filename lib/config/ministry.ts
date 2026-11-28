@@ -18,6 +18,16 @@ export const MINISTRY = {
   contactEmail: "prayer@example.com",
 } as const
 
+/**
+ * Privacy notice status. TODO(client): Janis reviews the wording (and confirms
+ * where the data is hosted), then set `reviewed: true` and the date.
+ */
+export const PRIVACY = {
+  reviewed: false,
+  /** Shown as written: a fixed label keeps the page fully static. */
+  lastUpdated: "November 28, 2026",
+} as const
+
 export const SCHEDULE = {
   /** 0 = Sunday … 4 = Thursday */
   weekday: 4,
@@ -29,7 +39,7 @@ export const SCHEDULE = {
   minNoticeHours: 48,
   /** Latest a visitor can book ahead. */
   maxAdvanceMonths: 1,
-  /** Visitors can cancel/reschedule themselves until this many hours before. */
+  /** Visitors can cancel from their link until this many hours before. */
   changeNoticeHours: 48,
   hoursLabel: "7:00 – 9:00 pm",
 } as const
@@ -38,6 +48,10 @@ export const LIMITS = {
   prayerPointsMax: 500,
   onlineReasonMax: 200,
   declineMessageMax: 300,
+  followUpMax: 2000,
+  noteMax: 5000,
+  nameMax: 100,
+  phoneMax: 32,
   passwordMin: 8,
 } as const
 

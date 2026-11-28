@@ -36,16 +36,7 @@ def get_current_user(session: SessionDep, token: SessionTokenDep) -> User:
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
-def require_visitor(user: CurrentUserDep) -> User:
-    if user.role is not Role.visitor:
-        raise AppError(ErrorCode.forbidden)
-    return user
-
-
 def require_admin(user: CurrentUserDep) -> User:
     if user.role is not Role.admin:
         raise AppError(ErrorCode.forbidden)
     return user
-
-
-VisitorDep = Annotated[User, Depends(require_visitor)]

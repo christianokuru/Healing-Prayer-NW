@@ -42,6 +42,15 @@
   --color-danger-soft: var(--danger-soft);
   --color-danger-foreground: var(--danger-foreground);
 
+  /* Warm welcome colours for the public pages. */
+  --color-rose: var(--rose);
+  --color-rose-strong: var(--rose-strong);
+  --color-rose-soft: var(--rose-soft);
+  --color-cream: var(--cream);
+  --color-sand: var(--sand);
+  --color-sky: var(--sky);
+  --color-gold: var(--gold);
+
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -87,6 +96,15 @@
   --danger-foreground: #8e2a23;
   --destructive: #a3342c;
   --destructive-foreground: #ffffff;
+
+  /* Dawn: rose, cream, sand, sky and a little gold, alongside the sage green. */
+  --rose: #b4535b;
+  --rose-strong: #8e3a42;
+  --rose-soft: #f9e8e6;
+  --cream: #fcf8f2;
+  --sand: #f4eadd;
+  --sky: #dfecf3;
+  --gold: #d6a24a;
 
   --border: #dde6e1;
   --input: #c3d0ca;
@@ -137,6 +155,12 @@
   }
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+  /* Hearts and crosses, for the scripture band on the home page. */
+  .pattern-hearts {
+    background-color: var(--rose-soft);
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2256%22%20height=%2256%22%20viewBox=%220%200%2056%2056%22%3E%3Cg%20fill=%22none%22%20stroke=%22%23b4535b%22%20stroke-width=%221.6%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%20opacity=%220.55%22%3E%3Cpath%20d=%22M14%2021c-3-3.2-8-1.6-8%202.6%200%203.6%204.4%206.4%208%209.4%203.6-3%208-5.8%208-9.4%200-4.2-5-5.8-8-2.6z%22/%3E%3Cpath%20d=%22M42%2040v12M37%2045h10%22/%3E%3Cpath%20d=%22M42%204v10M37.5%208h9%22/%3E%3C/g%3E%3C/svg%3E");
+    background-size: 56px 56px;
   }
 }
 

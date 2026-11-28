@@ -5,7 +5,16 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.schedule import slots_on
-from tests.conftest import DEC_3, NOV_26, book, booked, check_error, confirmed, slot
+from tests.conftest import (
+    DEC_3,
+    NOV_26,
+    book,
+    booked,
+    check_error,
+    confirmed,
+    manage,
+    status_of,
+)
 
 URL = "/availability/slots"
 
@@ -16,67 +25,63 @@ def poll(client, etag=None, **params):
 
 
 def test_poll_sees_changes(grace, tom):
-    first = poll(grace)
+    first = poll(grace.client)
     assert first.status_code == 200
     assert first.json()["pollAfterSeconds"] == 10
     etag = first.headers["etag"]
-    assert first.headers["cache-control"] == "private, no-cache"
+    assert first.headers["cache-control"] == "no-cache"
 
-    unchanged = poll(grace, etag)
+    unchanged = poll(grace.client, etag)
     assert (unchanged.status_code, unchanged.content) == (304, b"")
     assert unchanged.headers["etag"] == etag
-    assert poll(grace, f'"other", W/{etag}').status_code == 304
+    assert poll(grace.client, f'"other", W/{etag}').status_code == 304
 
     booking = booked(tom)
-    changed = poll(grace, etag, date=str(DEC_3))
+    changed = poll(grace.client, etag, date=str(DEC_3))
     assert changed.status_code == 200
     (day,) = changed.json()["days"]
     assert [s["state"] for s in day["slots"]] == ["taken", "open", "open", "open"]
     assert day["openCount"] == 3
 
-    tom.post(f"/bookings/{booking}/cancel")
-    assert poll(grace, etag).status_code == 304
+    manage(tom, booking, "cancel")
+    assert poll(grace.client, etag).status_code == 304
 
 
-def test_poll_reveals_nothing_about_others(grace, tom):
+def test_poll_reveals_nothing_about_anyone(grace, tom):
     booking = booked(tom)
-    text = poll(grace, excludeBookingId=booking).text
-    for secret in (booking, "Tom", "tom@", "SECRET-POINTS", "userId"):
+    text = poll(grace.client).text
+    for secret in (booking, "Tom", "tom@", "SECRET-POINTS", "personId"):
         assert secret not in text
     assert '"taken"' in text
-    assert '"mine"' in poll(tom).text
-    # An ETag from one person never matches another's.
-    assert poll(grace, poll(tom).headers["etag"]).status_code == 200
+    # Everyone sees the same thing, so the person who booked sees nothing extra.
+    assert poll(tom.client).text == text
 
 
 def test_poll_tracks_the_booking_window(grace, time):
-    assert poll(grace, date=str(NOV_26)).json()["days"][0]["state"] == "open"
+    assert poll(grace.client, date=str(NOV_26)).json()["days"][0]["state"] == "open"
     time.to(slots_on(NOV_26)[0])
-    assert poll(grace, date=str(NOV_26)).json()["days"][0]["state"] == "closed"
+    assert poll(grace.client, date=str(NOV_26)).json()["days"][0]["state"] == "closed"
 
 
-def test_poll_input(grace, admin, anon):
-    check_error(poll(anon), 401, "unauthenticated")
-    check_error(poll(admin), 403, "forbidden")
+def test_poll_input(anon):
+    assert poll(anon).status_code == 200
     for date in ("2026-12-04", "2030-01-03", "nope", "' OR 1=1 --"):
-        check_error(poll(grace, date=date), 422, "validation")
-    check_error(poll(grace, excludeBookingId="nope"), 422, "validation")
-    check_error(poll(grace, "x" * 501), 422, "validation")
+        check_error(poll(anon, date=date), 422, "validation")
+    check_error(poll(anon, "x" * 501), 422, "validation")
 
 
-def test_poll_limit_is_per_person(grace, tom, time):
+def test_poll_limit(anon, time):
     for _ in range(60):
-        assert poll(grace).status_code == 200
-    blocked = poll(grace)
+        assert poll(anon).status_code == 200
+    blocked = poll(anon)
     check_error(blocked, 429, "rate_limited")
     assert 1 <= int(blocked.headers["retry-after"]) <= 60
-    assert poll(tom).status_code == 200
     time.forward(seconds=60)
-    assert poll(grace).status_code == 200
+    assert poll(anon).status_code == 200
 
 
 def test_stale_poll_cannot_double_book(grace, tom):
-    assert poll(grace, date=str(DEC_3)).json()["days"][0]["openCount"] == 4
+    assert poll(grace.client, date=str(DEC_3)).json()["days"][0]["openCount"] == 4
     booked(tom)
     check_error(book(grace), 409, "slot_taken")
 
@@ -92,19 +97,23 @@ def test_stale_poll_cannot_double_book(grace, tom):
         {"Sec-Fetch-Site": "cross-site"},
     ],
 )
-def test_cross_origin_writes_are_refused(grace, headers):
-    check_error(grace.post("/auth/logout", headers=headers), 403, "forbidden")
-    assert grace.get("/auth/me").status_code == 200
+def test_cross_origin_writes_are_refused(admin, grace, headers):
+    check_error(admin.post("/auth/logout", headers=headers), 403, "forbidden")
+    assert admin.get("/auth/me").status_code == 200
+    # The public booking form is protected the same way.
+    response = grace.client.post("/bookings", json={}, headers=headers)
+    check_error(response, 403, "forbidden")
 
 
-def test_frontend_origin_may_write(grace):
+def test_frontend_origin_may_write(admin):
     headers = {"Origin": "http://frontend.test", "Sec-Fetch-Site": "same-site"}
-    assert grace.post("/auth/logout", headers=headers).status_code == 204
+    assert admin.post("/auth/logout", headers=headers).status_code == 204
 
 
-def test_security_headers(grace, anon):
+def test_security_headers(admin, anon):
     for response in (
-        grace.get("/me/bookings"),
+        admin.get("/admin/bookings"),
+        anon.get("/availability"),
         anon.get("/auth/me"),
         anon.get("/nope"),
         anon.post("/auth/logout", headers={"Origin": "https://evil.example"}),
@@ -119,15 +128,19 @@ def test_unknown_host_is_refused(anon):
     assert anon.get("/health", headers={"Host": "evil.example"}).status_code == 400
 
 
-def test_other_peoples_bookings_are_out_of_reach(grace, tom, admin):
+def test_bookings_are_only_reachable_by_their_link(grace, tom, admin):
     booking = confirmed(tom, admin)
-    for action, body in (
-        ("cancel", {}),
-        ("late-notice", {}),
-        ("reschedule", {"slotStart": slot(DEC_3, 1)}),
+    # Knowing a booking's ID is not enough: the signature is what grants access.
+    for path in (
+        booking,
+        booking.replace("-", ""),
+        booking.replace("-", "") + "0" * 32,
     ):
-        response = grace.post(f"/bookings/{booking}/{action}", json=body)
-        check_error(response, 404, "not_found")
+        check_error(grace.client.get(f"/manage/{path}"), 404, "not_found")
+        check_error(grace.client.post(f"/manage/{path}/cancel"), 404, "not_found")
+    assert status_of(tom, booking) == "confirmed"
+    # The admin API needs the minister's session, whatever the visitor sends.
+    check_error(grace.client.get("/admin/bookings"), 401, "unauthenticated")
 
 
 def test_unsafe_production_settings_are_refused():

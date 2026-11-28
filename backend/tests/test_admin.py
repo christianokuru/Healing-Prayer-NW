@@ -31,7 +31,7 @@ def attend(admin, booking, attendance):
 
 
 def test_approve_online_needs_zoom(grace, admin, db):
-    booking = booked(grace, mode="online", onlineReason="Far away")
+    booking = booked(grace, online=True, onlineReason="Far away")
     check_error(approve(admin, booking), 422, "validation")
     check_error(approve(admin, booking, zoomLink="javascript:x"), 422, "validation")
     link = "https://zoom.us/j/123?pwd=a"
@@ -84,17 +84,6 @@ def test_decline_and_revert(grace, tom, admin, db):
     check_error(act(admin, booking, "revert"), 409, "invalid_state")
 
 
-def test_revert_cannot_restore_a_taken_original(grace, tom, admin):
-    original = confirmed(grace, admin)
-    moved = grace.post(
-        f"/bookings/{original}/reschedule", json={"slotStart": slot(DEC_10)}
-    ).json()["id"]
-    approve(admin, moved)
-    booked(tom)
-    check_error(act(admin, moved, "revert"), 409, "invalid_state")
-    assert status_of(grace, moved) == "confirmed"
-
-
 def test_attendance(grace, tom, admin, db, time):
     booking = confirmed(grace, admin)
     request = booked(tom, index=1)
@@ -105,32 +94,39 @@ def test_attendance(grace, tom, admin, db, time):
     check_error(attend(admin, request, "attended"), 409, "invalid_state")
     check_error(attend(admin, booking, "maybe"), 422, "validation")
 
+    before = subjects(db, GRACE)
     assert attend(admin, booking, "attended").json()["status"] == "attended"
     assert attend(admin, booking, "attended").json()["status"] == "attended"
-    assert "We missed you" not in subjects(db, GRACE)
-
-    # Corrected to a no-show: the email waits for the Undo delay...
     assert attend(admin, booking, "no_show").json()["status"] == "no_show"
-    assert "We missed you" in subjects(db, GRACE)
-    # ...and clearing it withdraws the unsent email.
     assert attend(admin, booking, None).json()["status"] == "confirmed"
-    assert "We missed you" not in subjects(db, GRACE)
+    # Marking attendance never emails anyone: the minister writes herself.
+    assert subjects(db, GRACE) == before
 
 
-def test_no_show_email_is_sent_once(grace, admin, db, time):
+def follow_up(admin, booking, **body):
+    payload = {"subject": "We missed you on Thursday", "message": "Hello Grace,"}
+    return admin.post(f"/admin/bookings/{booking}/follow-up", json=payload | body)
+
+
+def test_follow_up_email(grace, admin, db, time):
     booking = confirmed(grace, admin)
     time.to(slots_on(DEC_3)[0])
+    # Only for people marked as didn't come.
+    check_error(follow_up(admin, booking), 409, "invalid_state")
     attend(admin, booking, "no_show")
-    time.forward(minutes=1)
-    while send_next(db):
-        pass
-    # Switching back and forth after it went out never sends it again.
-    attend(admin, booking, "attended")
-    attend(admin, booking, "no_show")
-    time.forward(minutes=1)
-    while send_next(db):
-        pass
-    assert subjects(db, GRACE).count("We missed you") == 1
+    for bad in ({"subject": " "}, {"message": "x" * 2001}, {"subject": "a\nBcc: x"}):
+        check_error(follow_up(admin, booking, **bad), 422, "validation")
+    body = follow_up(
+        admin, booking, message="Hello Grace,\n\nIs everything all right?"
+    ).json()
+    assert body["followUpSentAt"] == "2026-12-04T01:00:00.000Z"
+    mail = mails(db, GRACE)[-1]
+    assert mail.subject == "We missed you on Thursday"
+    assert "Is everything all right?" in mail.body
+    # She may write again; each one is sent.
+    follow_up(admin, booking, subject="Thinking of you")
+    assert subjects(db, GRACE)[-2:] == ["We missed you on Thursday", "Thinking of you"]
+    check_error(follow_up(admin, "nope"), 404, "not_found")
 
 
 def test_block_thursday(grace, tom, admin, db):
@@ -164,7 +160,7 @@ def test_block_thursday(grace, tom, admin, db):
 
 
 def test_lists_people_and_analytics(grace, tom, admin, time):
-    online = booked(grace, DEC_3, mode="online", onlineReason="Far", topic="family")
+    online = booked(grace, DEC_3, online=True, onlineReason="Far")
     approve(admin, online, zoomLink="https://zoom.us/j/1")
     missed = confirmed(tom, admin, DEC_3, 1)
     first = confirmed(grace, admin, NOV_26)
@@ -195,10 +191,11 @@ def test_lists_people_and_analytics(grace, tom, admin, time):
     assert people[0]["firstVisit"] == slot(NOV_26)
     assert people[0]["lastVisit"] == slot(DEC_3)
     assert people[1]["noShowCount"] == 1
-    assert people[1]["firstVisit"] is None and people[1]["topTopic"] is None
+    assert people[1]["firstVisit"] is None
 
     detail = admin.get(f"/admin/people/{people[0]['id']}").json()
     assert detail["bookings"][0]["id"] == later
+    assert detail["notes"] == []
     check_error(admin.get("/admin/people/nope"), 404, "not_found")
     me = admin.get("/auth/me").json()["id"]
     check_error(admin.get(f"/admin/people/{me}"), 404, "not_found")
@@ -215,7 +212,6 @@ def test_lists_people_and_analytics(grace, tom, admin, time):
         {"month": "2026-11", "label": "Nov", "held": 1, "capacity": 16},
         {"month": "2026-12", "label": "Dec", "held": 1, "capacity": 16},
     ]
-    assert {t["topic"] for t in stats["topics"]} == {"healing", "family"}
     assert [p["fullName"] for p in stats["frequent"]] == ["Grace"]
     bad = admin.get("/admin/analytics", params={"months": 4})
     check_error(bad, 422, "validation")
@@ -267,10 +263,38 @@ def test_failed_email_is_retried(grace, db, time, monkeypatch):
     assert mails(db, GRACE)[0].sent_at
 
 
-def test_visitors_never_see_others(grace, tom):
-    booked(tom)
-    assert grace.get("/me/bookings").json() == []
+def test_notes(grace, admin, time):
+    booked(grace)
+    person = admin.get("/admin/people").json()[0]["id"]
+    general = admin.post("/admin/notes", json={"body": " Ask about the side door. "})
+    assert general.status_code == 201
+    assert general.json()["body"] == "Ask about the side door."
+    assert general.json()["personId"] is None
+    time.forward(minutes=1)
+    about = admin.post(
+        "/admin/notes", json={"body": "Needs a ride.", "personId": person}
+    ).json()
+    assert about["personName"] == "Grace"
 
+    newest_first = [n["id"] for n in admin.get("/admin/notes").json()]
+    assert newest_first == [about["id"], general.json()["id"]]
+    only = admin.get("/admin/notes", params={"personId": person}).json()
+    assert [n["id"] for n in only] == [about["id"]]
+    assert admin.get(f"/admin/people/{person}").json()["notes"] == only
 
-def test_admin_is_not_a_visitor(admin):
-    check_error(book(admin), 403, "forbidden")
+    edited = admin.patch(
+        f"/admin/notes/{about['id']}", json={"body": "Esther will drive."}
+    )
+    assert (edited.json()["body"], edited.json()["personId"]) == (
+        "Esther will drive.",
+        None,
+    )
+
+    for bad in ({"body": " "}, {"body": "x" * 5001}, {"body": "a\x00b"}):
+        check_error(admin.post("/admin/notes", json=bad), 422, "validation")
+    unknown = {"body": "x", "personId": "00000000-0000-0000-0000-000000000000"}
+    check_error(admin.post("/admin/notes", json=unknown), 404, "not_found")
+
+    assert admin.delete(f"/admin/notes/{about['id']}").status_code == 204
+    check_error(admin.delete(f"/admin/notes/{about['id']}"), 404, "not_found")
+    assert len(admin.get("/admin/notes").json()) == 1

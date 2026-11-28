@@ -11,7 +11,7 @@ import { useInstallPrompt } from "./use-install-prompt"
 /**
  * Invites people to add the app to their home screen. On iPhone there is
  * no install prompt, so it explains the Share → Add to Home Screen steps.
- * `persistent` (profile page) ignores the dismissed state.
+ * `persistent` ignores the dismissed state.
  */
 export function InstallAppCard({ persistent, className }: { persistent?: boolean; className?: string }) {
   const { support, install, dismissed, dismiss } = useInstallPrompt()
@@ -37,7 +37,9 @@ export function InstallAppCard({ persistent, className }: { persistent?: boolean
             {support === "installed" ? "The app is installed" : "Add the app to your phone"}
           </h2>
           <p className="text-sm text-muted-foreground">
-            {support === "installed" ? "Open it from your home screen anytime." : "Book and check your sessions in one tap."}
+            {support === "installed"
+              ? "Open it from your home screen anytime."
+              : "Answer requests and mark attendance in one tap."}
           </p>
         </div>
       </div>

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useApi } from "@/components/providers/api-provider"
-import type { ApproveInput, DeclineInput } from "@/lib/api/contracts"
+import type { ApproveInput, DeclineInput, FollowUpInput, NoteInput } from "@/lib/api/contracts"
 import type { AdminBooking, Attendance, BookingStatus } from "@/lib/domain/types"
 import { qk } from "@/lib/query/keys"
 
@@ -63,7 +63,7 @@ function useStatusMutation<TInput>(
     onSettled: () =>
       Promise.all([
         qc.invalidateQueries({ queryKey: qk.admin.all }),
-        qc.invalidateQueries({ queryKey: qk.visitor.all }),
+        qc.invalidateQueries({ queryKey: qk.public.all }),
       ]),
   })
 }
@@ -101,7 +101,7 @@ export function useSetAttendance() {
 function useInvalidateAll() {
   const qc = useQueryClient()
   return () =>
-    Promise.all([qc.invalidateQueries({ queryKey: qk.admin.all }), qc.invalidateQueries({ queryKey: qk.visitor.all })])
+    Promise.all([qc.invalidateQueries({ queryKey: qk.admin.all }), qc.invalidateQueries({ queryKey: qk.public.all })])
 }
 
 export function useBlockDate() {
@@ -117,4 +117,59 @@ export function useUnblockDate() {
   const api = useApi()
   const invalidate = useInvalidateAll()
   return useMutation({ mutationFn: (date: string) => api.admin.unblockDate(date), onSettled: invalidate })
+}
+
+/** A personal email to someone who missed their session. */
+export function useSendFollowUp() {
+  const api = useApi()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: FollowUpInput) => api.admin.sendFollowUp(input),
+    onSuccess: (updated) =>
+      qc.setQueryData<AdminBooking[]>(qk.admin.bookings, (list) =>
+        list?.map((b) => (b.id === updated.id ? updated : b))
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.admin.all }),
+  })
+}
+
+/* ---------- Notes ---------- */
+
+export function useNotes(personId?: string) {
+  const api = useApi()
+  return useQuery({
+    queryKey: qk.admin.notes(personId),
+    queryFn: () => api.admin.listNotes(personId ? { personId } : undefined),
+  })
+}
+
+/** Notes show on the Notes page and on a person's history, so refresh both. */
+function useInvalidateNotes() {
+  const qc = useQueryClient()
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ["admin", "notes"] }),
+      qc.invalidateQueries({ queryKey: ["admin", "person"] }),
+    ])
+}
+
+export function useCreateNote() {
+  const api = useApi()
+  const invalidate = useInvalidateNotes()
+  return useMutation({ mutationFn: (input: NoteInput) => api.admin.createNote(input), onSettled: invalidate })
+}
+
+export function useUpdateNote() {
+  const api = useApi()
+  const invalidate = useInvalidateNotes()
+  return useMutation({
+    mutationFn: ({ noteId, ...input }: NoteInput & { noteId: string }) => api.admin.updateNote(noteId, input),
+    onSettled: invalidate,
+  })
+}
+
+export function useDeleteNote() {
+  const api = useApi()
+  const invalidate = useInvalidateNotes()
+  return useMutation({ mutationFn: (noteId: string) => api.admin.deleteNote(noteId), onSettled: invalidate })
 }

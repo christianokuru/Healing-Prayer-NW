@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "cn"
-import { ChevronDownIcon, LogOutIcon, RotateCcwIcon, UserRoundIcon } from "lucide-react"
+import { ChevronDownIcon, LogOutIcon, RotateCcwIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { InitialsAvatar } from "@/components/common/initials-avatar"
@@ -22,12 +22,11 @@ import { resetMockData } from "@/lib/api/mock"
 import { writeRoleCookie } from "@/lib/auth/session-cookie"
 
 interface UserMenuProps {
-  profileHref?: string
   tone?: "light" | "dark"
   showName?: boolean
 }
 
-export function UserMenu({ profileHref, tone = "dark", showName = true }: UserMenuProps) {
+export function UserMenu({ tone = "dark", showName = true }: UserMenuProps) {
   const { data: user } = useSession()
   const logout = useLogout()
   const router = useRouter()
@@ -57,7 +56,7 @@ export function UserMenu({ profileHref, tone = "dark", showName = true }: UserMe
           <span className="hidden text-left leading-tight sm:block">
             <span className="block text-sm font-semibold">{user.fullName}</span>
             <span className={cn("block text-xs", tone === "light" ? "text-white/70" : "text-muted-foreground")}>
-              {user.role === "admin" ? "Prayer minister" : "My account"}
+              Prayer minister
             </span>
           </span>
         )}
@@ -71,11 +70,6 @@ export function UserMenu({ profileHref, tone = "dark", showName = true }: UserMe
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        {profileHref && (
-          <DropdownMenuItem className="h-10 gap-2.5 px-2.5 text-[15px]" onClick={() => router.push(profileHref)}>
-            <UserRoundIcon className="size-4" aria-hidden="true" /> My profile
-          </DropdownMenuItem>
-        )}
         {isMockApi && (
           <DropdownMenuItem className="h-10 gap-2.5 px-2.5 text-[15px]" onClick={resetDemo}>
             <RotateCcwIcon className="size-4" aria-hidden="true" /> Reset demo data

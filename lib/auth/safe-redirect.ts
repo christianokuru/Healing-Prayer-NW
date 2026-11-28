@@ -1,12 +1,12 @@
-import { homeFor } from "@/lib/auth/session-cookie"
-import type { Role } from "@/lib/domain/types"
+import { ADMIN_HOME } from "@/lib/auth/session-cookie"
 
 /**
- * Where to send someone after login. Only same-site paths inside their
- * own area are honoured, so `?next=` can't be used for open redirects.
+ * Where to send the minister after login. Only paths inside the admin area
+ * are honoured, so `?next=` can't be used for open redirects.
  */
-export function postLoginPath(role: Role, next: string | null): string {
-  const home = homeFor(role)
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) return home
-  return next === home || next.startsWith(`${home}/`) || next.startsWith(`${home}?`) ? next : home
+export function postLoginPath(next: string | null): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) return ADMIN_HOME
+  return next === ADMIN_HOME || next.startsWith(`${ADMIN_HOME}/`) || next.startsWith(`${ADMIN_HOME}?`)
+    ? next
+    : ADMIN_HOME
 }

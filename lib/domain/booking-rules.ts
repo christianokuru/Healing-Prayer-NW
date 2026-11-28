@@ -20,6 +20,9 @@ import {
  * these too; the UI uses them for instant, friendly feedback.
  */
 
+/** Anything with a status and a session time (admin rows or a managed booking). */
+type Timed = Pick<Booking, "status" | "slotStart">
+
 const ACTIVE: BookingStatus[] = ["pending", "confirmed"]
 /** Statuses that keep a slot unavailable to others. */
 const OCCUPYING: BookingStatus[] = ["pending", "confirmed", "attended", "no_show"]
@@ -40,7 +43,7 @@ export function isInBookingWindow(slotStart: string, now: Date): boolean {
  * Visitor-facing status. A visitor never sees "unmarked": a confirmed
  * session that has ended reads as completed until the minister says otherwise.
  */
-export function displayStatus(b: Booking, now: Date): DisplayStatus {
+export function displayStatus(b: Timed, now: Date): DisplayStatus {
   const started = new Date(b.slotStart).getTime() <= now.getTime()
   const ended = new Date(slotEndIso(b.slotStart)).getTime() <= now.getTime()
   if (b.status === "attended") return "completed"
@@ -50,26 +53,22 @@ export function displayStatus(b: Booking, now: Date): DisplayStatus {
 }
 
 /** Admin-facing status: shows which started sessions still need attendance. */
-export function adminStatus(b: Booking, now: Date): DisplayStatus {
+export function adminStatus(b: Timed, now: Date): DisplayStatus {
   if (needsAttendance(b, now)) return "unmarked"
   return displayStatus(b, now)
 }
 
-export const isUpcoming = (b: Booking, now: Date) =>
+export const isUpcoming = (b: Timed, now: Date) =>
   isActive(b) && new Date(slotEndIso(b.slotStart)).getTime() > now.getTime()
 
-/** Visitor can cancel or reschedule on their own. */
-export function canChangeThemselves(b: Booking, now: Date): boolean {
+/** Visitor can cancel on their own (from their manage link). */
+export function canChangeThemselves(b: Timed, now: Date): boolean {
   return isActive(b) && hoursUntil(b.slotStart, now) >= SCHEDULE.changeNoticeHours
 }
 
 /** Inside the 48h window: visitor may only tell the minister they can't come. */
-export function canSendLateNotice(b: Booking, now: Date): boolean {
+export function canSendLateNotice(b: Timed, now: Date): boolean {
   return isActive(b) && !canChangeThemselves(b, now) && hoursUntil(b.slotStart, now) > 0
-}
-
-export function hasPendingReschedule(b: Booking, all: Booking[]): boolean {
-  return all.some((x) => x.rescheduleOfId === b.id && x.status === "pending")
 }
 
 export const canApprove = (b: Booking, now: Date) =>
@@ -80,30 +79,29 @@ export const canDecline = canApprove
 const ATTENDANCE_STATUSES: BookingStatus[] = ["confirmed", "attended", "no_show"]
 
 /** Attendance can be recorded (or corrected) from the moment a session starts. */
-export const canMarkAttendance = (b: Booking, now: Date) =>
+export const canMarkAttendance = (b: Timed, now: Date) =>
   ATTENDANCE_STATUSES.includes(b.status) && hoursUntil(b.slotStart, now) <= 0
 
 /** Started, confirmed, and nobody has said whether they came. */
-export const needsAttendance = (b: Booking, now: Date) =>
+export const needsAttendance = (b: Timed, now: Date) =>
   b.status === "confirmed" && hoursUntil(b.slotStart, now) <= 0
+
+/** Someone who missed their session can get a personal follow-up email. */
+export const canSendFollowUp = (b: Booking) => b.status === "no_show"
 
 /** Can the decision on this booking be reverted back to pending? */
 export const canRevertDecision = (b: Booking, now: Date) =>
   (b.status === "confirmed" || b.status === "declined") && hoursUntil(b.slotStart, now) > 0
 
-/** One active booking per person per session day. */
-export function userHasBookingOnDay(
+/** One active booking per person (by email) per session day. */
+export function personHasBookingOnDay(
   bookings: Booking[],
-  userId: string,
+  personId: string,
   key: string,
   excludeId?: string
 ): Booking | undefined {
   return bookings.find(
-    (b) =>
-      b.userId === userId &&
-      b.id !== excludeId &&
-      isActive(b) &&
-      dateKey(b.slotStart) === key
+    (b) => b.personId === personId && b.id !== excludeId && isActive(b) && dateKey(b.slotStart) === key
   )
 }
 
@@ -114,38 +112,27 @@ export function slotIsFree(bookings: Booking[], slotStart: string): boolean {
 interface AvailabilityInput {
   bookings: Booking[]
   blocked: BlockedDate[]
-  userId: string
   now: Date
-  /** When rescheduling, the booking being moved does not count against the day. */
-  excludeBookingId?: string
 }
 
-/** Every session day a visitor can see in the booking picker. */
-export function buildAvailability(input: AvailabilityInput): ThursdayAvailability[] {
-  const { bookings, blocked, userId, now, excludeBookingId } = input
+/**
+ * Every session day shown in the public booking picker. It never reveals
+ * who holds a slot, only whether it is open.
+ */
+export function buildAvailability({ bookings, blocked, now }: AvailabilityInput): ThursdayAvailability[] {
   const { latest } = bookingWindow(now)
   const blockedKeys = new Set(blocked.map((b) => b.date))
 
   return sessionDaysBetween(now, latest).map((key) => {
-    const mine = userHasBookingOnDay(bookings, userId, key, excludeBookingId)
-    const slots = slotsForDay(key).map((start) => {
-      const mineHere = bookings.find(
-        (b) => b.slotStart === start && b.userId === userId && isActive(b) && b.id !== excludeBookingId
-      )
-      if (mineHere) return { start, state: "mine" as const }
-      const free =
-        slotIsFree(
-          bookings.filter((b) => b.id !== excludeBookingId),
-          start
-        ) && isInBookingWindow(start, now)
-      return { start, state: free ? ("open" as const) : ("taken" as const) }
-    })
+    const slots = slotsForDay(key).map((start) => ({
+      start,
+      state: slotIsFree(bookings, start) && isInBookingWindow(start, now) ? ("open" as const) : ("taken" as const),
+    }))
     const openCount = slots.filter((s) => s.state === "open").length
     const anyInWindow = slotsForDay(key).some((s) => isInBookingWindow(s, now))
 
     let state: ThursdayAvailability["state"]
     if (blockedKeys.has(key)) state = "cancelled"
-    else if (mine) state = "booked_by_me"
     else if (!anyInWindow) state = "closed"
     else if (openCount === 0) state = "full"
     else state = "open"
@@ -154,8 +141,7 @@ export function buildAvailability(input: AvailabilityInput): ThursdayAvailabilit
       date: key,
       state,
       openCount: state === "open" ? openCount : 0,
-      slots: state === "open" ? slots : slots.map((s) => (s.state === "mine" ? s : { ...s, state: "taken" as const })),
-      myBookingId: mine?.id,
+      slots: state === "open" ? slots : slots.map((s) => ({ ...s, state: "taken" as const })),
     }
   })
 }

@@ -7,8 +7,9 @@ from sqlmodel import Session, col, delete, select
 
 from app import clock
 from app.config import get_settings
-from app.models import Booking, EmailKind, Mode, OutboxEmail, Role, User
+from app.models import Booking, EmailKind, Mode, OutboxEmail, Person, Role, User
 from app.schedule import SESSION_LENGTH, format_day, format_slot
+from app.security import manage_token
 
 # Long enough for the admin's Undo to withdraw the email.
 UNDO_DELAY = timedelta(seconds=10)
@@ -74,7 +75,16 @@ def _where(booking: Booking) -> str:
     if booking.mode is Mode.online:
         return f"Online: {booking.zoom_link}"
     address = get_settings().ministry_address
-    return f"Address: {address}" if address else f"Directions: {_link('/dashboard')}"
+    return f"Address: {address}" if address else "Alberta Bible College, Calgary"
+
+
+def _manage(booking: Booking) -> str:
+    """The visitor's private link to see or cancel this booking."""
+    return (
+        "To see your booking, or cancel it, use your private link "
+        "(please don't share it):\n"
+        f"{_link(f'/manage/{manage_token(booking.id)}')}"
+    )
 
 
 def _escape_ics(value: str) -> str:
@@ -116,17 +126,7 @@ def _ics(booking: Booking) -> str:
     return "\r\n".join(_fold_ics(line) for line in lines) + "\r\n"
 
 
-# --- Account
-
-
-def verification_code(session: Session, user: User, code: str) -> None:
-    _queue(
-        session,
-        user.email,
-        "Your confirmation code",
-        f"Hello {user.full_name},\n\nYour confirmation code is {code}.\n"
-        "It works for 30 minutes.",
-    )
+# --- Prayer minister sign-in
 
 
 def password_reset(session: Session, user: User, token: str) -> None:
@@ -141,17 +141,18 @@ def password_reset(session: Session, user: User, token: str) -> None:
     )
 
 
-# --- Bookings
+# --- Bookings (visitors have no accounts: email is how we reach them)
 
 
-def new_request(session: Session, booking: Booking, visitor: User) -> None:
+def new_request(session: Session, booking: Booking, person: Person) -> None:
     when = format_slot(booking.slot_start)
     _queue(
         session,
-        visitor.email,
+        person.email,
         "We received your request",
-        f"Hello {visitor.full_name},\n\nWe received your request for {when}. "
-        "It is waiting for approval, and we'll email you as soon as it's answered.",
+        f"Hello {person.full_name},\n\nThank you. We received your request for "
+        f"{when}. Your time is held for you while the prayer minister reviews it, "
+        f"and we'll email you as soon as it's answered.\n\n{_manage(booking)}",
         booking=booking,
     )
     for admin in _admin_emails(session):
@@ -159,74 +160,62 @@ def new_request(session: Session, booking: Booking, visitor: User) -> None:
             session,
             admin,
             "New prayer session request",
-            f"{visitor.full_name} asked for {when}.\n\nAnswer it here: {_link('/admin')}",
+            f"{person.full_name} asked for {when}.\n\nAnswer it here: {_link('/admin')}",
             booking=booking,
         )
 
 
-def approved(session: Session, booking: Booking, visitor: User) -> None:
+def approved(session: Session, booking: Booking, person: Person) -> None:
     _queue(
         session,
-        visitor.email,
+        person.email,
         "Your prayer session is confirmed",
-        f"Hello {visitor.full_name},\n\nYour session is confirmed for "
+        f"Hello {person.full_name},\n\nYour session is confirmed for "
         f"{format_slot(booking.slot_start)}.\n\n{_where(booking)}\n\n"
-        "The attached file adds it to your calendar.",
+        "The attached file adds it to your calendar.\n\n"
+        f"{_manage(booking)}",
         booking=booking,
         kind=EmailKind.decision,
         ics=_ics(booking),
     )
 
 
-def declined(session: Session, booking: Booking, visitor: User) -> None:
+def declined(session: Session, booking: Booking, person: Person) -> None:
     note = f"\n\n{booking.decline_message}" if booking.decline_message else ""
-    stands = (
-        "\n\nYour original session has not changed." if booking.reschedule_of_id else ""
-    )
     _queue(
         session,
-        visitor.email,
+        person.email,
         "About your prayer session request",
-        f"Hello {visitor.full_name},\n\nThank you for reaching out. We're sorry, we "
-        f"can't meet on {format_slot(booking.slot_start)}.{note}{stands}\n\n"
-        f"You're welcome to choose another Thursday: {_link('/dashboard/book')}",
+        f"Hello {person.full_name},\n\nThank you for reaching out. We're sorry, we "
+        f"can't meet on {format_slot(booking.slot_start)}.{note}\n\n"
+        f"You're welcome to choose another Thursday: {_link('/book')}",
         booking=booking,
         kind=EmailKind.decision,
     )
 
 
-NO_SHOW_SUBJECT = "We missed you"
-
-
-def no_show_already_sent(session: Session, booking: Booking) -> bool:
-    """So switching attendance back and forth never emails someone twice."""
-    return (
-        session.exec(
-            select(OutboxEmail.id).where(
-                col(OutboxEmail.booking_id) == booking.id,
-                col(OutboxEmail.subject) == NO_SHOW_SUBJECT,
-                col(OutboxEmail.sent_at).is_not(None),
-            )
-        ).first()
-        is not None
-    )
-
-
-def no_show(session: Session, booking: Booking, visitor: User) -> None:
+def cancelled(session: Session, booking: Booking, person: Person) -> None:
+    """Confirms a cancellation the visitor made from their link."""
     _queue(
         session,
-        visitor.email,
-        NO_SHOW_SUBJECT,
-        f"Hello {visitor.full_name},\n\nWe missed you at your prayer session and hope "
-        "you're well. You're welcome to book another time whenever you're ready: "
-        f"{_link('/dashboard/book')}",
+        person.email,
+        "Your prayer session is cancelled",
+        f"Hello {person.full_name},\n\nAs you asked, your session on "
+        f"{format_slot(booking.slot_start)} is cancelled. You're welcome to book "
+        f"again whenever you like: {_link('/book')}",
         booking=booking,
-        kind=EmailKind.decision,
     )
+
+
+def follow_up(
+    session: Session, booking: Booking, person: Person, subject: str, message: str
+) -> None:
+    """The minister's own words to someone who missed their session."""
+    _queue(session, person.email, subject, message, booking=booking)
 
 
 def late_notice(
-    session: Session, booking: Booking, visitor: User, message: str | None
+    session: Session, booking: Booking, person: Person, message: str | None
 ) -> None:
     note = f"\n\nTheir message:\n{message}" if message else ""
     for admin in _admin_emails(session):
@@ -234,43 +223,44 @@ def late_notice(
             session,
             admin,
             "A visitor can't make it",
-            f"{visitor.full_name} can't make it on "
+            f"{person.full_name} can't make it on "
             f"{format_slot(booking.slot_start)}.{note}",
             booking=booking,
         )
 
 
-def thursday_cancelled(session: Session, day: date, visitor: User) -> None:
+def thursday_cancelled(session: Session, day: date, person: Person) -> None:
     _queue(
         session,
-        visitor.email,
+        person.email,
         "Your prayer session was cancelled",
-        f"Hello {visitor.full_name},\n\nWe're sorry: there are no sessions on "
+        f"Hello {person.full_name},\n\nWe're sorry: there are no sessions on "
         f"{format_day(day)}, so yours has been cancelled.\n\n"
-        f"Please choose another date: {_link('/dashboard/book')}",
+        f"Please choose another date: {_link('/book')}",
     )
 
 
 # --- Scheduled
 
 
-def reminder(session: Session, booking: Booking, visitor: User) -> None:
+def reminder(session: Session, booking: Booking, person: Person) -> None:
     _queue_once(
         session,
         f"reminder:{booking.id}",
-        visitor.email,
+        person.email,
         "Your prayer session is tomorrow",
-        f"Hello {visitor.full_name},\n\nA reminder of your session on "
-        f"{format_slot(booking.slot_start)}.\n\n{_where(booking)}",
+        f"Hello {person.full_name},\n\nA reminder of your session on "
+        f"{format_slot(booking.slot_start)}.\n\n{_where(booking)}\n\n"
+        f"Can't come? Please let us know: {_link(f'/manage/{manage_token(booking.id)}')}",
     )
 
 
 def pending_digest(
-    session: Session, day: date, waiting: list[tuple[Booking, User]]
+    session: Session, day: date, waiting: list[tuple[Booking, Person]]
 ) -> None:
     rows = "\n".join(
-        f"- {format_slot(booking.slot_start)}: {visitor.full_name}"
-        for booking, visitor in waiting
+        f"- {format_slot(booking.slot_start)}: {person.full_name}"
+        for booking, person in waiting
     )
     for admin in _admin_emails(session):
         _queue_once(

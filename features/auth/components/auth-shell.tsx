@@ -21,7 +21,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
             <circle key={r} cx="300" cy="300" r={r} />
           ))}
         </svg>
-        <Logo href="/login" tone="light" />
+        <Logo href="/" tone="light" />
         <div className="relative mt-auto max-w-md">
           <p className="font-heading text-[40px] leading-[1.12] font-medium tracking-tight">
             A quiet place to be prayed for.
@@ -49,7 +49,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
 
       <main id="main" className="flex flex-col px-5 pt-safe pb-safe sm:px-8">
         <div className="pt-6 lg:hidden">
-          <Logo href="/login" />
+          <Logo href="/" />
         </div>
         <div className="mx-auto flex w-full max-w-[440px] flex-1 flex-col justify-center py-10">{children}</div>
         <CrisisNote compact className="mx-auto mb-6 w-full max-w-[440px]" />

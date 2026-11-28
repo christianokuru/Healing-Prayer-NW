@@ -10,13 +10,22 @@ import type { AttendanceDay } from "../selectors"
 import { AttendanceControl, useAttendanceActions } from "./attendance-control"
 
 /**
- * Overview card listing approved sessions that have started but have no
- * attendance yet. This is where "came / didn't come" (and so no-shows) comes from.
+ * Overview card: approved sessions that have started but have no attendance
+ * yet, plus anyone marked "didn't come" recently, so the minister can email
+ * them. This is where "came / didn't come" (and so no-shows) comes from.
  */
 export function AttendanceCard({ days, now }: { days: AttendanceDay[]; now: Date }) {
   const { markAllCame } = useAttendanceActions()
-  const total = days.reduce((n, d) => n + d.bookings.length, 0)
-  if (!total) return null
+  const all = days.flatMap((d) => d.bookings)
+  if (!all.length) return null
+  const toMark = all.filter((b) => b.status === "confirmed").length
+  const missed = all.length - toMark
+  const summary = [
+    toMark && `${toMark === 1 ? "1 person" : `${toMark} people`} to mark. Tap who came and who didn't.`,
+    missed && `${missed === 1 ? "1 person" : `${missed} people`} didn't come recently. You can email them to check in.`,
+  ]
+    .filter(Boolean)
+    .join(" ")
 
   return (
     <Surface aria-labelledby="attendance-title" className="border-warning/50">
@@ -28,14 +37,14 @@ export function AttendanceCard({ days, now }: { days: AttendanceDay[]; now: Date
           <h3 id="attendance-title" className="font-heading text-[22px] leading-tight font-medium">
             Mark attendance
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {total === 1 ? "1 person" : `${total} people`} to mark. Tap who came and who didn&apos;t.
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
         </div>
       </div>
 
       <div className="flex flex-col gap-5">
-        {days.map((day) => (
+        {days.map((day) => {
+          const unmarked = day.bookings.filter((b) => b.status === "confirmed")
+          return (
           <div key={day.date}>
             <div className="mb-1 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold text-[#3f524b]">
@@ -45,8 +54,8 @@ export function AttendanceCard({ days, now }: { days: AttendanceDay[]; now: Date
                   · {relativeDays(day.bookings[0].slotStart, now)}
                 </span>
               </p>
-              {day.bookings.length > 1 && (
-                <Button variant="ghost" size="sm" className="-mr-2 shrink-0" onClick={() => markAllCame(day.bookings)}>
+              {unmarked.length > 1 && (
+                <Button variant="ghost" size="sm" className="-mr-2 shrink-0" onClick={() => markAllCame(unmarked)}>
                   <CheckCheckIcon aria-hidden="true" /> Everyone came
                 </Button>
               )}
@@ -68,7 +77,8 @@ export function AttendanceCard({ days, now }: { days: AttendanceDay[]; now: Date
               ))}
             </ul>
           </div>
-        ))}
+          )
+        })}
       </div>
     </Surface>
   )

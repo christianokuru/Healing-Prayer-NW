@@ -9,9 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useNow } from "@/hooks/use-now"
 import { adminStatus } from "@/lib/domain/booking-rules"
 import { fmt } from "@/lib/domain/time"
-import { topicLabel } from "@/lib/domain/topics"
 
 import { usePerson } from "../hooks"
+import { PersonNotes } from "./notes/person-notes"
 
 /** One visitor's details and their prayer points over time. */
 export function PersonPanel({ personId }: { personId: string | null }) {
@@ -42,7 +42,7 @@ export function PersonPanel({ personId }: { personId: string | null }) {
   }
 
   const p = person.data
-  const timeline = p.bookings.filter((b) => b.status !== "rescheduled")
+  const timeline = p.bookings
 
   return (
     <div>
@@ -74,6 +74,8 @@ export function PersonPanel({ personId }: { personId: string | null }) {
         ))}
       </dl>
 
+      <PersonNotes personId={p.id} notes={p.notes} />
+
       <h3 className="mb-2 text-sm font-semibold text-[#3f524b]">Prayer points over time</h3>
       {timeline.length === 0 ? (
         <p className="text-sm text-muted-foreground">No sessions yet. This will be their first visit.</p>
@@ -83,10 +85,13 @@ export function PersonPanel({ personId }: { personId: string | null }) {
             <li key={b.id} className="relative py-3 pl-5">
               <span className="absolute top-[18px] -left-[7px] size-3 rounded-full border-2 border-card bg-primary" aria-hidden="true" />
               <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-muted-foreground">
-                {fmt.dayMonthYear(b.slotStart)} · {topicLabel(b.topic)}
+                {fmt.dayMonthYear(b.slotStart)}
                 <StatusBadge status={adminStatus(b, now)} label={adminStatusLabel(adminStatus(b, now))} size="sm" />
               </div>
               <p className="mt-1 font-heading text-[16px] leading-relaxed text-[#26392f]">“{b.prayerPoints}”</p>
+              {b.followUpSentAt && (
+                <p className="mt-1 text-[13px] text-muted-foreground">You emailed them on {fmt.dayMonth(b.followUpSentAt)}.</p>
+              )}
             </li>
           ))}
         </ol>

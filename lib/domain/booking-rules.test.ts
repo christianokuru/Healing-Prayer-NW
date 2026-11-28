@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { postLoginPath } from "@/lib/auth/safe-redirect"
-import { stepsFor, wizardReducer } from "@/features/booking/state"
+import { STEPS, wizardReducer } from "@/features/booking/state"
 
 import {
   adminStatus,
@@ -12,8 +12,9 @@ import {
   displayStatus,
   isInBookingWindow,
   needsAttendance,
+  canSendFollowUp,
+  personHasBookingOnDay,
   slotIsFree,
-  userHasBookingOnDay,
 } from "./booking-rules"
 import { dateKey, fmt, sessionDaysBetween, slotStartIso } from "./time"
 import type { Booking } from "./types"
@@ -23,11 +24,10 @@ const NOW = new Date("2026-11-11T17:00:00Z")
 
 const booking = (over: Partial<Booking>): Booking => ({
   id: "b1",
-  userId: "u1",
+  personId: "p1",
   slotStart: slotStartIso("2026-11-19", "19:30"),
   status: "confirmed",
   mode: "in_person",
-  topic: "healing",
   prayerPoints: "x",
   createdAt: NOW.toISOString(),
   updatedAt: NOW.toISOString(),
@@ -78,27 +78,26 @@ describe("booking window", () => {
   })
 })
 
-describe("one booking per person per Thursday", () => {
+describe("one booking per person (email) per Thursday", () => {
   it("finds an active booking on the same day", () => {
     const all = [booking({})]
-    expect(userHasBookingOnDay(all, "u1", "2026-11-19")).toBeDefined()
-    expect(userHasBookingOnDay(all, "u2", "2026-11-19")).toBeUndefined()
-    expect(userHasBookingOnDay(all, "u1", "2026-11-19", "b1")).toBeUndefined()
-    expect(userHasBookingOnDay([booking({ status: "cancelled" })], "u1", "2026-11-19")).toBeUndefined()
+    expect(personHasBookingOnDay(all, "p1", "2026-11-19")).toBeDefined()
+    expect(personHasBookingOnDay(all, "p2", "2026-11-19")).toBeUndefined()
+    expect(personHasBookingOnDay(all, "p1", "2026-11-19", "b1")).toBeUndefined()
+    expect(personHasBookingOnDay([booking({ status: "cancelled" })], "p1", "2026-11-19")).toBeUndefined()
   })
 })
 
-describe("availability", () => {
+describe("public availability", () => {
   const days = buildAvailability({
     bookings: [
-      booking({ id: "mine", userId: "me", status: "pending", slotStart: slotStartIso("2026-11-26", "19:00") }),
-      booking({ id: "a", userId: "x", slotStart: slotStartIso("2026-12-03", "19:00") }),
-      booking({ id: "b", userId: "y", slotStart: slotStartIso("2026-12-03", "19:30") }),
-      booking({ id: "c", userId: "z", slotStart: slotStartIso("2026-12-03", "20:00") }),
-      booking({ id: "d", userId: "w", slotStart: slotStartIso("2026-12-03", "20:30") }),
+      booking({ id: "held", status: "pending", slotStart: slotStartIso("2026-11-26", "19:00") }),
+      booking({ id: "a", personId: "x", slotStart: slotStartIso("2026-12-03", "19:00") }),
+      booking({ id: "b", personId: "y", slotStart: slotStartIso("2026-12-03", "19:30") }),
+      booking({ id: "c", personId: "z", slotStart: slotStartIso("2026-12-03", "20:00") }),
+      booking({ id: "d", personId: "w", slotStart: slotStartIso("2026-12-03", "20:30") }),
     ],
     blocked: [{ date: "2026-12-10", createdAt: NOW.toISOString() }],
-    userId: "me",
     now: NOW,
   })
   const state = Object.fromEntries(days.map((d) => [d.date, d.state]))
@@ -107,21 +106,17 @@ describe("availability", () => {
     expect(state).toEqual({
       "2026-11-12": "closed",
       "2026-11-19": "open",
-      "2026-11-26": "booked_by_me",
+      "2026-11-26": "open",
       "2026-12-03": "full",
       "2026-12-10": "cancelled",
     })
   })
 
-  it("lets a reschedule ignore the booking being moved", () => {
-    const moved = buildAvailability({
-      bookings: [booking({ id: "mine", userId: "me", slotStart: slotStartIso("2026-11-26", "19:00") })],
-      blocked: [],
-      userId: "me",
-      now: NOW,
-      excludeBookingId: "mine",
-    })
-    expect(moved.find((d) => d.date === "2026-11-26")?.state).toBe("open")
+  it("holds a pending request's slot without saying whose it is", () => {
+    const nov26 = days.find((d) => d.date === "2026-11-26")!
+    expect(nov26.openCount).toBe(3)
+    expect(nov26.slots[0]).toEqual({ start: slotStartIso("2026-11-26", "19:00"), state: "taken" })
+    expect(JSON.stringify(days)).not.toContain("held")
   })
 })
 
@@ -179,9 +174,9 @@ describe("attendance", () => {
 
 describe("booking wizard", () => {
   it("walks the steps and clears the time when the day changes", () => {
-    const steps = stepsFor(false)
+    expect(STEPS).toEqual(["day", "time", "details", "review"])
     let s = wizardReducer({ step: "day" }, { type: "pickDate", date: "2026-11-19" })
-    s = wizardReducer(s, { type: "next", steps })
+    s = wizardReducer(s, { type: "next" })
     s = wizardReducer(s, { type: "pickSlot", slotStart: "x" })
     expect(s).toMatchObject({ step: "time", slotStart: "x" })
     s = wizardReducer(s, { type: "pickDate", date: "2026-11-26" })
@@ -190,17 +185,22 @@ describe("booking wizard", () => {
     expect(s).toMatchObject({ step: "day", date: undefined })
   })
 
-  it("skips prayer points when rescheduling", () => {
-    expect(stepsFor(true)).toEqual(["day", "time", "review"])
+})
+
+describe("follow-up emails", () => {
+  it("are only for people marked as didn't come", () => {
+    expect(canSendFollowUp(booking({ status: "no_show" }))).toBe(true)
+    expect(canSendFollowUp(booking({ status: "attended" }))).toBe(false)
+    expect(canSendFollowUp(booking({}))).toBe(false)
   })
 })
 
 describe("post-login redirect", () => {
-  it("only honours safe paths inside the person's own area", () => {
-    expect(postLoginPath("visitor", "/dashboard/book")).toBe("/dashboard/book")
-    expect(postLoginPath("visitor", "/admin")).toBe("/dashboard")
-    expect(postLoginPath("admin", "//evil.example")).toBe("/admin")
-    expect(postLoginPath("admin", "https://evil.example")).toBe("/admin")
-    expect(postLoginPath("admin", null)).toBe("/admin")
+  it("only honours safe paths inside the admin area", () => {
+    expect(postLoginPath("/admin/notes")).toBe("/admin/notes")
+    expect(postLoginPath("/manage/abc")).toBe("/admin")
+    expect(postLoginPath("//evil.example")).toBe("/admin")
+    expect(postLoginPath("https://evil.example")).toBe("/admin")
+    expect(postLoginPath(null)).toBe("/admin")
   })
 })

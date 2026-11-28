@@ -1,49 +1,45 @@
+"""Public booking: no account. Visitors book with their contact details and
+manage a booking through the private link emailed to them."""
+
 import datetime as dt
-import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Query, Response, status
+from fastapi import APIRouter, Header, Path, Query, Request, Response, status
 
 from app.db import SessionDep
-from app.deps import VisitorDep
 from app.errors import AppError, error_responses
 from app.errors import ErrorCode as E
-from app.models import Booking
-from app.rate_limit import hit
+from app.rate_limit import client_ip, hit
 from app.schemas import (
     BookingCreate,
-    BookingPublic,
+    CreatedBooking,
     LateNoticeRequest,
-    RescheduleRequest,
-    SlotDay,
+    ManagedBooking,
     SlotPoll,
     ThursdayAvailability,
 )
 from app.security import digest
 from app.services import bookings
 
-router = APIRouter(
-    tags=["bookings"], responses=error_responses(E.unauthenticated, E.forbidden)
-)
+router = APIRouter(tags=["public"])
 
 POLL_SECONDS = 10
 POLLS_PER_MINUTE = 60  # a few open tabs, not a scraper
+HOUR = 3600
 
 SLOT_ERRORS = (E.date_unavailable, E.outside_window, E.slot_taken, E.one_per_thursday)
+
+# Long enough for the signed token, short enough to refuse junk early.
+Token = Annotated[str, Path(min_length=1, max_length=100)]
 
 
 @router.get("/availability")
 def get_availability(
-    user: VisitorDep,
-    session: SessionDep,
-    response: Response,
-    exclude_booking_id: Annotated[
-        uuid.UUID | None, Query(alias="excludeBookingId")
-    ] = None,
+    request: Request, session: SessionDep, response: Response
 ) -> list[ThursdayAvailability]:
-    hit(session, "availability", str(user.id), 60, 60)
+    hit(session, "availability", client_ip(request), 120, 60)
     response.headers["Cache-Control"] = "no-store"
-    return bookings.availability(session, user, exclude_booking_id)
+    return bookings.availability(session)
 
 
 @router.get(
@@ -52,14 +48,11 @@ def get_availability(
     responses={304: {"description": "Nothing changed since the given ETag"}},
 )
 def poll_slots(
-    user: VisitorDep,
+    request: Request,
     session: SessionDep,
     response: Response,
     date: Annotated[
         dt.date | None, Query(description="Only this Thursday (Calgary date)")
-    ] = None,
-    exclude_booking_id: Annotated[
-        uuid.UUID | None, Query(alias="excludeBookingId")
     ] = None,
     if_none_match: Annotated[str | None, Header(max_length=500)] = None,
 ) -> SlotPoll | Response:
@@ -67,20 +60,15 @@ def poll_slots(
 
     Informational only. Booking re-checks the slot, so a stale poll can't double book.
     """
-    hit(session, "poll", str(user.id), POLLS_PER_MINUTE, 60)
-    days = bookings.availability(session, user, exclude_booking_id)
+    hit(session, "poll", client_ip(request), POLLS_PER_MINUTE, 60)
+    days = bookings.availability(session)
     if date:
         days = [day for day in days if day.date == date]
         if not days:
             raise AppError(E.validation, "Please choose an upcoming Thursday.")
-    poll = SlotPoll(
-        poll_after_seconds=POLL_SECONDS,
-        days=[SlotDay.model_validate(day) for day in days],
-    )
-    # Bound to the person: "mine" differs between visitors.
-    tag = digest(f"{user.id}:{poll.model_dump_json()}")[:32]
-    etag = f'"{tag}"'
-    headers = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Cookie"}
+    poll = SlotPoll(poll_after_seconds=POLL_SECONDS, days=days)
+    etag = f'"{digest(poll.model_dump_json())[:32]}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
     known = [t.strip().removeprefix("W/") for t in (if_none_match or "").split(",")]
     if etag in known:
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
@@ -91,56 +79,47 @@ def poll_slots(
 @router.post(
     "/bookings",
     status_code=status.HTTP_201_CREATED,
-    response_model=BookingPublic,
     responses=error_responses(E.validation, *SLOT_ERRORS),
 )
 def create_booking(
-    data: BookingCreate, user: VisitorDep, session: SessionDep
-) -> Booking:
-    hit(session, "book", str(user.id), 30, 3600)
-    return bookings.create(session, user, data)
+    data: BookingCreate, request: Request, session: SessionDep
+) -> CreatedBooking:
+    hit(session, "book-ip", client_ip(request), 20, HOUR)
+    hit(session, "book", data.email, 6, HOUR)
+    # Bots fill in the hidden field; refuse quietly, without saying why.
+    if data.website:
+        raise AppError(E.validation)
+    return bookings.create(session, data)
+
+
+@router.get("/manage/{token}", responses=error_responses(E.not_found))
+def get_managed_booking(
+    token: Token, request: Request, session: SessionDep
+) -> ManagedBooking:
+    hit(session, "manage", client_ip(request), 60, 60)
+    return bookings.get_managed(session, token)
 
 
 @router.post(
-    "/bookings/{booking_id}/reschedule",
-    status_code=status.HTTP_201_CREATED,
-    response_model=BookingPublic,
-    responses=error_responses(
-        E.not_found, E.too_late, E.invalid_state, E.validation, *SLOT_ERRORS
-    ),
-)
-def request_reschedule(
-    booking_id: uuid.UUID,
-    data: RescheduleRequest,
-    user: VisitorDep,
-    session: SessionDep,
-) -> Booking:
-    hit(session, "book", str(user.id), 30, 3600)
-    return bookings.reschedule(session, user, booking_id, data.slot_start)
-
-
-@router.post(
-    "/bookings/{booking_id}/cancel",
-    response_model=BookingPublic,
+    "/manage/{token}/cancel",
     responses=error_responses(E.not_found, E.too_late, E.invalid_state),
 )
-def cancel_booking(
-    booking_id: uuid.UUID, user: VisitorDep, session: SessionDep
-) -> Booking:
-    return bookings.cancel(session, user, booking_id)
+def cancel_managed_booking(
+    token: Token, request: Request, session: SessionDep
+) -> ManagedBooking:
+    hit(session, "manage-change", client_ip(request), 20, HOUR)
+    return bookings.cancel(session, token)
 
 
 @router.post(
-    "/bookings/{booking_id}/late-notice",
-    response_model=BookingPublic,
+    "/manage/{token}/late-notice",
     responses=error_responses(E.not_found, E.invalid_state),
 )
 def send_late_notice(
-    booking_id: uuid.UUID,
-    user: VisitorDep,
+    token: Token,
+    request: Request,
     session: SessionDep,
     data: LateNoticeRequest | None = None,
-) -> Booking:
-    return bookings.late_notice(
-        session, user, booking_id, data.message if data else None
-    )
+) -> ManagedBooking:
+    hit(session, "manage-change", client_ip(request), 20, HOUR)
+    return bookings.late_notice(session, token, data.message if data else None)

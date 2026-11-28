@@ -1,30 +1,25 @@
 /**
  * Domain types shared by the UI and the API layer.
- * These mirror the contract agreed with the FastAPI backend:
+ * These mirror the contract with the FastAPI backend:
  * all timestamps are ISO-8601 strings in UTC.
+ *
+ * Visitors have no accounts: they book with their contact details and
+ * manage a booking through a private link in their emails. Only the
+ * prayer minister (admin) signs in.
  */
 
-export type Role = "visitor" | "admin"
+export type Role = "admin"
 
+/** The signed-in prayer minister. */
 export interface User {
   id: string
   email: string
   fullName: string
-  phone: string
   role: Role
-  emailVerified: boolean
   createdAt: string
 }
 
 export type AttendanceMode = "in_person" | "online"
-
-export type PrayerTopic =
-  | "healing"
-  | "emotional"
-  | "family"
-  | "deliverance"
-  | "forgiveness"
-  | "other"
 
 /** Status as stored by the backend. */
 export type BookingStatus =
@@ -33,7 +28,6 @@ export type BookingStatus =
   | "declined"
   | "cancelled"
   | "cancelled_by_minister"
-  | "rescheduled"
   /** The minister marked that they came. */
   | "attended"
   /** The minister marked that they didn't come. */
@@ -50,44 +44,60 @@ export type DisplayStatus =
   | "unmarked"
   | "expired"
 
+/** Someone who has booked. Identified by their email address. */
+export interface PersonContact {
+  id: string
+  fullName: string
+  email: string
+  phone: string
+}
+
 export interface Booking {
   id: string
-  userId: string
+  personId: string
   /** Session start, UTC ISO. */
   slotStart: string
   status: BookingStatus
   mode: AttendanceMode
-  topic: PrayerTopic
   prayerPoints: string
   onlineReason?: string
   zoomLink?: string
   declineMessage?: string
-  /** Set when this request moves an existing booking to a new time. */
-  rescheduleOfId?: string
   lateCancellation?: boolean
+  /** When the minister last emailed them after a missed session. */
+  followUpSentAt?: string
   createdAt: string
   updatedAt: string
 }
 
-/** Booking joined with the visitor, for admin views. */
+/** Booking joined with the person, for admin views. */
 export interface AdminBooking extends Booking {
-  visitor: Pick<User, "id" | "fullName" | "email" | "phone">
+  visitor: PersonContact
   visitCount: number
 }
 
-export type SlotState = "open" | "taken" | "mine"
+/** What a visitor sees through their private "manage my booking" link. */
+export interface ManagedBooking {
+  id: string
+  slotStart: string
+  status: BookingStatus
+  mode: AttendanceMode
+  fullName: string
+  email: string
+  prayerPoints: string
+  zoomLink?: string
+  declineMessage?: string
+  lateCancellation?: boolean
+}
+
+export type SlotState = "open" | "taken"
 
 export interface SlotAvailability {
   start: string
   state: SlotState
 }
 
-export type ThursdayState =
-  | "open"
-  | "full"
-  | "closed"
-  | "cancelled"
-  | "booked_by_me"
+export type ThursdayState = "open" | "full" | "closed" | "cancelled"
 
 export interface ThursdayAvailability {
   /** Calgary-local date key, yyyy-MM-dd. */
@@ -95,8 +105,6 @@ export interface ThursdayAvailability {
   state: ThursdayState
   openCount: number
   slots: SlotAvailability[]
-  /** The visitor's active booking that day, if any. */
-  myBookingId?: string
 }
 
 export interface BlockedDate {
@@ -105,21 +113,27 @@ export interface BlockedDate {
   createdAt: string
 }
 
-export interface PersonSummary {
-  id: string
-  fullName: string
-  email: string
-  phone: string
+export interface PersonSummary extends PersonContact {
   firstVisit?: string
   lastVisit?: string
   /** Sessions marked as attended. */
   completedCount: number
   noShowCount: number
-  topTopic?: PrayerTopic
+}
+
+export interface Note {
+  id: string
+  body: string
+  /** Optional link to a person; their name is included for display. */
+  personId?: string
+  personName?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface PersonDetail extends PersonSummary {
   bookings: Booking[]
+  notes: Note[]
 }
 
 export interface AnalyticsSummary {
@@ -135,15 +149,11 @@ export interface AnalyticsSummary {
   unmarked: number
   onlineSessions: number
   monthly: { month: string; label: string; held: number; capacity: number }[]
-  topics: { topic: PrayerTopic; count: number }[]
   frequent: PersonSummary[]
 }
 
 export type ApiErrorCode =
   | "invalid_credentials"
-  | "email_taken"
-  | "email_not_verified"
-  | "invalid_code"
   | "invalid_token"
   | "unauthenticated"
   | "forbidden"
@@ -155,6 +165,8 @@ export type ApiErrorCode =
   | "too_late"
   | "invalid_state"
   | "validation"
+  | "rate_limited"
+  | "internal"
 
 /** The single error shape every API call rejects with. */
 export interface ApiErrorShape {

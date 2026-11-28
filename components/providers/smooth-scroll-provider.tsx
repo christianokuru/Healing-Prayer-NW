@@ -2,7 +2,7 @@
 
 import { ReactLenis, useLenis } from "lenis/react"
 import { usePathname } from "next/navigation"
-import { useEffect, type ReactNode } from "react"
+import { Suspense, useEffect, type ReactNode } from "react"
 
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion"
 
@@ -29,7 +29,10 @@ export function SmoothScrollProvider({ children }: { children: ReactNode }) {
       }}
     >
       <ScrollLockSync />
-      <ResetOnNavigate />
+      {/* Reads the URL, which is runtime data on dynamic routes like /manage/[token]. */}
+      <Suspense fallback={null}>
+        <ResetOnNavigate />
+      </Suspense>
       {children}
     </ReactLenis>
   )

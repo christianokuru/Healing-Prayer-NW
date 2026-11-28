@@ -1,41 +1,27 @@
 import { NextResponse, type NextRequest } from "next/server"
 
-import { ROLE_COOKIE, homeFor, isRole } from "@/lib/auth/session-cookie"
+import { ADMIN_HOME, ROLE_COOKIE, isAdminCookie } from "@/lib/auth/session-cookie"
 
 /**
- * Optimistic routing only (no data access): sends signed-out people to
- * /login and keeps each role in its own area before anything renders.
- * Real authorization is enforced by the API on every request.
+ * Optimistic routing only (no data access). Visitors never sign in, so the
+ * public pages are open to everyone; this only keeps the admin area behind
+ * the minister's login. Real authorization is enforced by the API.
  */
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
-  const role = request.cookies.get(ROLE_COOKIE)?.value
-  const signedIn = isRole(role)
+  const signedIn = isAdminCookie(request.cookies.get(ROLE_COOKIE)?.value)
 
-  // No public site yet (waiting on content from the client), so "/" goes
-  // straight to the right place. Done here rather than in app/page.tsx so
-  // there's no page that only exists to redirect while it renders.
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL(signedIn ? homeFor(role) : "/login", request.url))
-  }
-
-  const isVisitorArea = pathname.startsWith("/dashboard")
-  const isAdminArea = pathname.startsWith("/admin")
-  const isAuthPage = pathname === "/login" || pathname === "/signup"
-
-  if ((isVisitorArea || isAdminArea) && !signedIn) {
+  if (pathname.startsWith("/admin") && !signedIn) {
     const url = new URL("/login", request.url)
     url.searchParams.set("next", pathname + search)
     return NextResponse.redirect(url)
   }
-  if (signedIn) {
-    if ((isAdminArea && role !== "admin") || (isVisitorArea && role !== "visitor") || isAuthPage) {
-      return NextResponse.redirect(new URL(homeFor(role), request.url))
-    }
+  if (pathname === "/login" && signedIn) {
+    return NextResponse.redirect(new URL(ADMIN_HOME, request.url))
   }
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ["/", "/dashboard/:path*", "/admin/:path*", "/login", "/signup"],
+  matcher: ["/admin/:path*", "/login"],
 }

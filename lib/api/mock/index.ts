@@ -2,14 +2,14 @@ import type { Api } from "@/lib/api/contracts"
 
 import { mockAdminApi } from "./admin"
 import { mockAuthApi } from "./auth"
+import { mockPublicApi } from "./public"
 import { mockStore } from "./store"
-import { mockVisitorApi } from "./visitor"
 
-export { DEMO_ACCOUNTS, MOCK_VERIFICATION_CODE } from "./seed"
+export { DEMO_ADMIN } from "./seed"
 
 export const mockApi: Api = {
   auth: mockAuthApi,
-  visitor: mockVisitorApi,
+  public: mockPublicApi,
   admin: mockAdminApi,
 }
 

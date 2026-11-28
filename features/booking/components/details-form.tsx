@@ -2,17 +2,15 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { cn } from "cn"
-import { MapPinIcon, VideoIcon } from "lucide-react"
+import { VideoIcon } from "lucide-react"
 import Link from "next/link"
-import { useEffect } from "react"
+import { useEffect, useId } from "react"
 import { Controller, useForm, useWatch } from "react-hook-form"
 
-import { Field } from "@/components/forms/field"
+import { Field, TextField } from "@/components/forms/field"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
 import { LIMITS } from "@/lib/config/ministry"
-import { TOPICS } from "@/lib/domain/topics"
-import type { User } from "@/lib/domain/types"
 
 import { saveDraft } from "../draft"
 import { detailsSchema, type DetailsValues } from "../schema"
@@ -21,69 +19,98 @@ import type { BookingDetails } from "../state"
 export const DETAILS_FORM_ID = "booking-details"
 
 interface DetailsFormProps {
-  user: User
   initial?: Partial<BookingDetails>
   agreed?: boolean
   onSubmit: (details: BookingDetails) => void
 }
 
-const optionCard = (checked: boolean) =>
-  cn(
-    "flex cursor-pointer flex-col gap-1 rounded-2xl border p-4 transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/40",
-    checked ? "border-2 border-primary bg-primary-soft" : "border-input bg-card hover:border-primary"
+/** A tick box with its text as the accessible name (Base UI's checkbox isn't a native input). */
+function CheckRow({
+  checked,
+  onChange,
+  invalid,
+  children,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  invalid?: boolean
+  children: React.ReactNode
+}) {
+  const labelId = useId()
+  return (
+    <label className="flex cursor-pointer items-start gap-3 text-base leading-relaxed">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(v) => onChange(!!v)}
+        aria-invalid={invalid || undefined}
+        aria-labelledby={labelId}
+        className="mt-1 size-5"
+      />
+      <span id={labelId}>{children}</span>
+    </label>
   )
+}
 
-export function DetailsForm({ user, initial, agreed, onSubmit }: DetailsFormProps) {
+/** The whole form: name, email, phone, prayer points, and an optional Zoom request. */
+export function DetailsForm({ initial, agreed, onSubmit }: DetailsFormProps) {
   const form = useForm<DetailsValues>({
     resolver: zodResolver(detailsSchema),
     defaultValues: {
-      topic: initial?.topic,
+      fullName: initial?.fullName ?? "",
+      email: initial?.email ?? "",
+      phone: initial?.phone ?? "",
       prayerPoints: initial?.prayerPoints ?? "",
-      mode: initial?.mode ?? "in_person",
+      online: initial?.online ?? false,
       onlineReason: initial?.onlineReason ?? "",
+      website: "",
       agree: !!agreed,
     },
   })
   const { errors } = form.formState
-  const [topic, mode, points, onlineReason] = useWatch({
+  const [fullName, email, phone, points, online, onlineReason] = useWatch({
     control: form.control,
-    name: ["topic", "mode", "prayerPoints", "onlineReason"],
+    name: ["fullName", "email", "phone", "prayerPoints", "online", "onlineReason"],
   })
 
+  // Kept in this tab only, so nothing typed is lost if the page reloads.
   useEffect(() => {
-    saveDraft({ topic, mode, prayerPoints: points, onlineReason })
-  }, [topic, mode, points, onlineReason])
+    saveDraft({ fullName, email, phone, prayerPoints: points, online, onlineReason })
+  }, [fullName, email, phone, points, online, onlineReason])
 
   return (
     <form
       id={DETAILS_FORM_ID}
       noValidate
-      className="flex flex-col gap-7"
+      className="flex flex-col gap-6"
       onSubmit={form.handleSubmit(({ agree: _agree, ...details }) => onSubmit(details))}
     >
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-[15px] font-semibold">What is your prayer mostly about?</legend>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-          {TOPICS.map((t) => {
-            const checked = topic === t.value
-            return (
-              <label key={t.value} className={optionCard(checked)}>
-                <input type="radio" value={t.value} className="sr-only" {...form.register("topic")} />
-                <span className={cn("font-semibold", checked && "text-primary-strong")}>{t.label}</span>
-                <span className="text-[13px] leading-snug text-muted-foreground">{t.hint}</span>
-              </label>
-            )
-          })}
-        </div>
-        {errors.topic && (
-          <p role="alert" className="text-sm font-medium text-danger-foreground">
-            {errors.topic.message}
-          </p>
-        )}
-      </fieldset>
+      <TextField
+        label="Full name"
+        autoComplete="name"
+        error={errors.fullName?.message}
+        {...form.register("fullName")}
+      />
+      <TextField
+        label="Email address"
+        type="email"
+        inputMode="email"
+        autoComplete="email"
+        hint="We'll email you when your session is confirmed, so please check it carefully."
+        error={errors.email?.message}
+        {...form.register("email")}
+      />
+      <TextField
+        label="Phone number"
+        type="tel"
+        inputMode="tel"
+        autoComplete="tel"
+        hint="In case we need to reach you about your session."
+        error={errors.phone?.message}
+        {...form.register("phone")}
+      />
 
       <Field
-        label="Your prayer points"
+        label="What would you like prayer for?"
         hint="Share briefly. You'll be able to talk more with the prayer ministers in person."
         error={errors.prayerPoints?.message}
       >
@@ -98,65 +125,60 @@ export function DetailsForm({ user, initial, agreed, onSubmit }: DetailsFormProp
               placeholder="For example: healing from back pain, and peace for my family."
               {...form.register("prayerPoints")}
             />
-            <div className="mt-1.5 flex justify-between text-[13px] text-muted-foreground">
-              <span>Please keep it short and focused.</span>
-              <span className={cn("tabular", points.length >= LIMITS.prayerPointsMax - 40 && "font-semibold text-warning-foreground")}>
-                {points.length} / {LIMITS.prayerPointsMax}
-              </span>
-            </div>
+            <p
+              className={cn(
+                "mt-1.5 text-right text-[13px] text-muted-foreground tabular",
+                points.length >= LIMITS.prayerPointsMax - 40 && "font-semibold text-warning-foreground"
+              )}
+            >
+              {points.length} / {LIMITS.prayerPointsMax}
+            </p>
           </div>
         )}
       </Field>
 
-      <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 text-[15px] font-semibold">How will you attend?</legend>
-        <div className="grid gap-2.5 sm:grid-cols-2">
-          <label className={optionCard(mode === "in_person")}>
-            <input type="radio" value="in_person" className="sr-only" {...form.register("mode")} />
-            <span className="flex items-center gap-2 font-semibold">
-              <MapPinIcon className="size-[18px]" aria-hidden="true" /> In person
-            </span>
-            <span className="text-sm text-muted-foreground">At Alberta Bible College. This is how most sessions happen.</span>
-          </label>
-          <label className={optionCard(mode === "online")}>
-            <input type="radio" value="online" className="sr-only" {...form.register("mode")} />
-            <span className="flex items-center gap-2 font-semibold">
-              <VideoIcon className="size-[18px]" aria-hidden="true" /> Online by Zoom
-            </span>
-            <span className="text-sm text-muted-foreground">
-              For anyone who can&apos;t attend because of illness. The link is emailed after approval.
-            </span>
-          </label>
-        </div>
-      </fieldset>
+      {/* Hidden from people (and screen readers); bots fill it in. */}
+      <div aria-hidden="true" className="absolute -left-[10000px] h-px w-px overflow-hidden">
+        <label>
+          Website
+          <input type="text" tabIndex={-1} autoComplete="off" {...form.register("website")} />
+        </label>
+      </div>
 
-      {mode === "online" && (
-        <Field
-          label="Why do you need to join online?"
-          hint="A few words is enough, for example “in treatment and unable to travel”."
-          error={errors.onlineReason?.message}
-        >
-          {({ id, describedBy, invalid }) => (
-            <Textarea
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              maxLength={LIMITS.onlineReasonMax}
-              className="min-h-20"
-              {...form.register("onlineReason")}
-            />
+      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface-muted/60 p-4">
+        <Controller
+          control={form.control}
+          name="online"
+          render={({ field }) => (
+            <CheckRow checked={field.value} onChange={field.onChange}>
+              <span className="flex items-center gap-2 font-semibold">
+                <VideoIcon className="size-[18px] text-info" aria-hidden="true" />
+                I can&apos;t come in person. Please join me by Zoom.
+              </span>
+              <span className="block text-sm text-muted-foreground">
+                For anyone too unwell to travel. Most sessions are in person at Alberta Bible College.
+              </span>
+            </CheckRow>
           )}
-        </Field>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 rounded-2xl bg-surface-muted px-4 py-3.5 text-sm text-[#3f524b]">
-        <span>
-          We&apos;ll contact you at <strong className="text-foreground">{user.email}</strong> ·{" "}
-          <strong className="text-foreground">{user.phone}</strong>
-        </span>
-        <Link href="/dashboard/profile" className="font-semibold text-primary-strong hover:underline">
-          Update details
-        </Link>
+        />
+        {online && (
+          <Field
+            label="Why can't you come in person?"
+            hint="A few words is enough, for example “in treatment and unable to travel”."
+            error={errors.onlineReason?.message}
+          >
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                maxLength={LIMITS.onlineReasonMax}
+                className="min-h-20 bg-card"
+                {...form.register("onlineReason")}
+              />
+            )}
+          </Field>
+        )}
       </div>
 
       <Controller
@@ -164,21 +186,13 @@ export function DetailsForm({ user, initial, agreed, onSubmit }: DetailsFormProp
         name="agree"
         render={({ field }) => (
           <div className="flex flex-col gap-1.5">
-            <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-relaxed">
-              <Checkbox
-                checked={field.value}
-                onCheckedChange={(v) => field.onChange(!!v)}
-                aria-invalid={!!errors.agree || undefined}
-                className="mt-0.5 size-5"
-              />
-              <span>
-                I have read the{" "}
-                <Link href="/privacy" className="font-semibold text-primary-strong underline">
-                  privacy notice and booking terms
-                </Link>
-                , and I understand that prayer is not a replacement for medical care.
-              </span>
-            </label>
+            <CheckRow checked={field.value} onChange={field.onChange} invalid={!!errors.agree}>
+              I have read the{" "}
+              <Link href="/privacy" target="_blank" className="font-semibold text-primary-strong underline">
+                privacy notice
+              </Link>
+              , and I understand that prayer is not a replacement for medical care.
+            </CheckRow>
             {errors.agree && (
               <p role="alert" className="text-sm font-medium text-danger-foreground">
                 {errors.agree.message}

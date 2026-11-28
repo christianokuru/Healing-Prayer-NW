@@ -19,11 +19,14 @@ from app.schemas import (
     BlockDateResponse,
     BlockedDatePublic,
     DeclineRequest,
+    FollowUpRequest,
+    NoteInput,
+    NotePublic,
     PersonDetail,
     PersonSummary,
     UtcIn,
 )
-from app.services import bookings, reports
+from app.services import bookings, notes, reports
 
 router = APIRouter(
     prefix="/admin",
@@ -81,6 +84,15 @@ def set_attendance(
     return reports.get_booking(session, booking_id)
 
 
+@router.post("/bookings/{booking_id}/follow-up", responses=DECISION_ERRORS)
+def send_follow_up(
+    booking_id: uuid.UUID, data: FollowUpRequest, session: SessionDep
+) -> AdminBooking:
+    """A personal email to someone who was marked as didn't come."""
+    bookings.follow_up(session, booking_id, data.subject, data.message)
+    return reports.get_booking(session, booking_id)
+
+
 @router.get("/blocked-dates", response_model=list[BlockedDatePublic])
 def list_blocked_dates(session: SessionDep) -> list[BlockedDate]:
     return bookings.list_blocked(session)
@@ -123,3 +135,37 @@ def get_analytics(
     months: Annotated[AnalyticsRange, Query()] = AnalyticsRange.six,
 ) -> AnalyticsSummary:
     return reports.analytics(session, months)
+
+
+# --- Notes
+
+
+@router.get("/notes")
+def list_notes(
+    session: SessionDep,
+    person_id: Annotated[uuid.UUID | None, Query(alias="personId")] = None,
+) -> list[NotePublic]:
+    return notes.list_notes(session, person_id)
+
+
+@router.post(
+    "/notes",
+    status_code=status.HTTP_201_CREATED,
+    responses=error_responses(E.not_found),
+)
+def create_note(data: NoteInput, session: SessionDep) -> NotePublic:
+    return notes.create(session, data)
+
+
+@router.patch("/notes/{note_id}", responses=error_responses(E.not_found))
+def update_note(note_id: uuid.UUID, data: NoteInput, session: SessionDep) -> NotePublic:
+    return notes.update(session, note_id, data)
+
+
+@router.delete(
+    "/notes/{note_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=error_responses(E.not_found),
+)
+def delete_note(note_id: uuid.UUID, session: SessionDep) -> None:
+    notes.delete(session, note_id)

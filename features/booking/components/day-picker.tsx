@@ -3,16 +3,15 @@
 import { cn } from "cn"
 
 import { keyLabel, keyToDate, fmt } from "@/lib/domain/time"
-import type { Booking, ThursdayAvailability } from "@/lib/domain/types"
+import type { ThursdayAvailability } from "@/lib/domain/types"
 
 interface DayPickerProps {
   days: ThursdayAvailability[]
-  myBookings: Booking[]
   selected?: string
   onSelect: (date: string) => void
 }
 
-function describe(day: ThursdayAvailability, myBookings: Booking[]) {
+function describe(day: ThursdayAvailability) {
   switch (day.state) {
     case "open":
       return { note: `${day.openCount} ${day.openCount === 1 ? "time" : "times"} left`, sub: "Open", tone: "open" }
@@ -22,22 +21,14 @@ function describe(day: ThursdayAvailability, myBookings: Booking[]) {
       return { note: "Booking closed", sub: "Less than 48 hours away", tone: "off" }
     case "cancelled":
       return { note: "No sessions", sub: "The ministry is away", tone: "off" }
-    case "booked_by_me": {
-      const mine = myBookings.find((b) => b.id === day.myBookingId)
-      return {
-        note: mine?.status === "pending" ? "You've requested" : "You're booked",
-        sub: mine ? `${fmt.time(mine.slotStart)} · one per Thursday` : "One per Thursday",
-        tone: "mine",
-      }
-    }
   }
 }
 
-export function DayPicker({ days, myBookings, selected, onSelect }: DayPickerProps) {
+export function DayPicker({ days, selected, onSelect }: DayPickerProps) {
   return (
     <div role="radiogroup" aria-label="Thursdays" className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
       {days.map((day) => {
-        const d = describe(day, myBookings)
+        const d = describe(day)
         const isSelected = selected === day.date
         const disabled = day.state !== "open"
         const date = keyToDate(day.date)
@@ -66,7 +57,7 @@ export function DayPicker({ days, myBookings, selected, onSelect }: DayPickerPro
             <span
               className={cn(
                 "mt-auto text-sm font-semibold",
-                d.tone === "open" ? "text-primary-strong" : d.tone === "mine" ? "text-info-foreground" : "text-[#4a5a54]"
+                d.tone === "open" ? "text-primary-strong" : "text-[#4a5a54]"
               )}
             >
               {d.note}

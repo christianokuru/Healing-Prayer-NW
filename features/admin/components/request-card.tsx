@@ -1,21 +1,38 @@
 "use client"
 
-import { HistoryIcon, InfoIcon, RepeatIcon, VideoIcon } from "lucide-react"
+import { cn } from "cn"
+import { HistoryIcon, InfoIcon, MailIcon, PhoneIcon, VideoIcon } from "lucide-react"
 import Link from "next/link"
 
 import { InitialsAvatar } from "@/components/common/initials-avatar"
 import { ToneBadge } from "@/components/common/status-badge"
 import { Button } from "@/components/ui/button"
 import { fmt, relativeDays } from "@/lib/domain/time"
-import { modeLabel, topicLabel } from "@/lib/domain/topics"
-import type { AdminBooking } from "@/lib/domain/types"
+import { modeLabel } from "@/lib/domain/labels"
+import type { AdminBooking, PersonContact } from "@/lib/domain/types"
 
 import { urgencyOf } from "../selectors"
 import { DecisionButtons } from "./decision-buttons"
 
 const URGENCY_TONE = { urgent: "danger", soon: "warning", later: "neutral" } as const
 
-export function RequestCard({ booking, now, original }: { booking: AdminBooking; now: Date; original?: AdminBooking }) {
+/** Tap to call or email: visitors have no dashboard, so this is how to reach them. */
+export function ContactLinks({ person, className }: { person: PersonContact; className?: string }) {
+  return (
+    <p className={cn("flex flex-wrap gap-x-4 gap-y-1 text-sm", className)}>
+      <a href={`tel:${person.phone.replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1.5 font-medium text-primary-strong hover:underline">
+        <PhoneIcon className="size-3.5" aria-hidden="true" />
+        {person.phone}
+      </a>
+      <a href={`mailto:${person.email}`} className="inline-flex min-w-0 items-center gap-1.5 font-medium text-primary-strong hover:underline">
+        <MailIcon className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{person.email}</span>
+      </a>
+    </p>
+  )
+}
+
+export function RequestCard({ booking, now }: { booking: AdminBooking; now: Date }) {
   const urgency = urgencyOf(booking.slotStart, now)
   const visits = booking.visitCount === 0 ? "First visit" : `${booking.visitCount} past ${booking.visitCount === 1 ? "visit" : "visits"}`
   return (
@@ -33,18 +50,11 @@ export function RequestCard({ booking, now, original }: { booking: AdminBooking;
             )}
           </div>
           <p className="mt-0.5 text-sm text-[#44564f]">
-            {fmt.dateShort(booking.slotStart)} · {fmt.time(booking.slotStart)} · {topicLabel(booking.topic)} · {visits}
+            {fmt.dateShort(booking.slotStart)} · {fmt.time(booking.slotStart)} · {visits}
           </p>
+          <ContactLinks person={booking.visitor} className="mt-1.5" />
         </div>
       </div>
-
-      {original && (
-        <p className="mt-3 flex items-start gap-2 text-sm text-info-foreground">
-          <RepeatIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          Wants to move from {fmt.dateShort(original.slotStart)} at {fmt.time(original.slotStart)}. Approving releases the
-          old time.
-        </p>
-      )}
 
       <blockquote className="mt-3.5 rounded-2xl bg-[#f5f8f6] px-4 py-3 font-heading text-[17px] leading-relaxed text-[#26392f]">
         {booking.prayerPoints}

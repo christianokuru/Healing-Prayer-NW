@@ -20,11 +20,10 @@ from app.models import (
     AuthSession,
     Booking,
     BookingStatus,
-    EmailCode,
     OutboxEmail,
     PasswordReset,
+    Person,
     RateLimitWindow,
-    User,
 )
 from app.schedule import TZ
 
@@ -99,15 +98,15 @@ def queue_reminders(session: Session) -> None:
     local = clock.utcnow().astimezone(TZ)
     if local.hour < REMINDERS_FROM_HOUR:
         return
-    for booking, visitor in session.exec(
-        select(Booking, User)
-        .join(User, col(User.id) == col(Booking.user_id))
+    for booking, person in session.exec(
+        select(Booking, Person)
+        .join(Person, col(Person.id) == col(Booking.person_id))
         .where(
             Booking.session_date == local.date() + timedelta(days=1),
             Booking.status == BookingStatus.confirmed,
         )
     ).all():
-        emails.reminder(session, booking, visitor)
+        emails.reminder(session, booking, person)
     session.commit()
 
 
@@ -117,8 +116,8 @@ def queue_digest(session: Session) -> None:
     if local.hour not in DIGEST_HOURS:
         return
     waiting = session.exec(
-        select(Booking, User)
-        .join(User, col(User.id) == col(Booking.user_id))
+        select(Booking, Person)
+        .join(Person, col(Person.id) == col(Booking.person_id))
         .where(Booking.status == BookingStatus.pending, Booking.slot_start > now)
         .order_by(col(Booking.slot_start))
     ).all()
@@ -128,9 +127,9 @@ def queue_digest(session: Session) -> None:
 
 
 def clean_up(session: Session) -> None:
-    """Expired logins and codes only. Bookings and people are kept."""
+    """Expired logins and reset links only. Bookings and people are kept."""
     now = clock.utcnow()
-    for model in (AuthSession, EmailCode, PasswordReset, RateLimitWindow):
+    for model in (AuthSession, PasswordReset, RateLimitWindow):
         session.connection().execute(delete(model).where(col(model.expires_at) < now))
     session.commit()
 

@@ -20,7 +20,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
-from app.models import BookingStatus, Mode, Role, Topic
+from app.models import BookingStatus, Mode, Role
 
 
 class CamelModel(BaseModel):
@@ -91,23 +91,7 @@ AnyPassword = Annotated[str, StringConstraints(min_length=1, max_length=128)]
 ZoomLink = Annotated[HttpUrl, AfterValidator(_https)]
 
 
-# --- Auth and account
-
-
-class SignupRequest(CamelModel):
-    full_name: Name
-    email: Email
-    phone: Phone
-    password: NewPassword
-
-
-class SignupResponse(CamelModel):
-    email: str
-
-
-class VerifyEmailRequest(CamelModel):
-    email: Email
-    code: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20)]
+# --- Prayer minister sign-in
 
 
 class EmailRequest(CamelModel):
@@ -124,68 +108,61 @@ class ResetPasswordRequest(CamelModel):
     password: NewPassword
 
 
-class ProfileUpdate(CamelModel):
-    full_name: Name | None = None
-    phone: Phone | None = None
-
-
-class ChangePasswordRequest(CamelModel):
-    current_password: AnyPassword
-    new_password: NewPassword
-
-
 class UserPublic(CamelModel):
     id: uuid.UUID
     email: str
     full_name: str
-    phone: str
     role: Role
-    email_verified: bool
     created_at: UtcOut
 
 
-# --- Bookings
+# --- Public booking (no account)
 
 
 class BookingCreate(CamelModel):
-    slot_start: UtcIn
-    mode: Mode
-    topic: Topic
+    full_name: Name
+    email: Email
+    phone: Phone
     prayer_points: Annotated[Text, Field(min_length=1, max_length=500)]
+    slot_start: UtcIn
+    # "I can't come in person, please join by Zoom."
+    online: bool = False
     online_reason: Annotated[Text, Field(max_length=200)] | None = None
+    # Honeypot: hidden from people, so only bots fill it in.
+    website: Annotated[str, StringConstraints(max_length=200)] | None = None
 
     @model_validator(mode="after")
     def check_online_reason(self) -> Self:
-        if self.mode is Mode.in_person:
+        if not self.online:
             self.online_reason = None
         elif not self.online_reason:
-            raise ValueError("Please tell us why you'd like to meet online.")
+            raise ValueError("Please tell us briefly why you can't come in person.")
         return self
-
-
-class RescheduleRequest(CamelModel):
-    slot_start: UtcIn
 
 
 class LateNoticeRequest(CamelModel):
     message: Annotated[Text, Field(max_length=200)] | None = None
 
 
-class BookingPublic(CamelModel):
+class ManagedBooking(CamelModel):
+    """What a visitor sees through their private "manage my booking" link."""
+
     id: uuid.UUID
-    user_id: uuid.UUID
     slot_start: UtcOut
     status: BookingStatus
     mode: Mode
-    topic: Topic
+    full_name: str
+    email: str
     prayer_points: str
-    online_reason: str | None
     zoom_link: str | None
     decline_message: str | None
-    reschedule_of_id: uuid.UUID | None
     late_cancellation: bool
-    created_at: UtcOut
-    updated_at: UtcOut
+
+
+class CreatedBooking(CamelModel):
+    booking: ManagedBooking
+    # The same private token as the link in their emails.
+    manage_token: str
 
 
 class DayState(StrEnum):
@@ -193,13 +170,11 @@ class DayState(StrEnum):
     full = "full"
     closed = "closed"
     cancelled = "cancelled"
-    booked_by_me = "booked_by_me"
 
 
 class SlotState(StrEnum):
     open = "open"
     taken = "taken"
-    mine = "mine"
 
 
 class SlotAvailability(CamelModel):
@@ -212,22 +187,30 @@ class ThursdayAvailability(CamelModel):
     state: DayState
     open_count: int
     slots: list[SlotAvailability]
-    my_booking_id: uuid.UUID | None = None
-
-
-class SlotDay(CamelModel):
-    date: dt.date
-    state: DayState
-    open_count: int
-    slots: list[SlotAvailability]
 
 
 class SlotPoll(CamelModel):
     poll_after_seconds: int
-    days: list[SlotDay]
+    days: list[ThursdayAvailability]
 
 
 # --- Admin
+
+
+class BookingPublic(CamelModel):
+    id: uuid.UUID
+    person_id: uuid.UUID
+    slot_start: UtcOut
+    status: BookingStatus
+    mode: Mode
+    prayer_points: str
+    online_reason: str | None
+    zoom_link: str | None
+    decline_message: str | None
+    late_cancellation: bool
+    follow_up_sent_at: UtcOut | None
+    created_at: UtcOut
+    updated_at: UtcOut
 
 
 class VisitorSummary(CamelModel):
@@ -256,6 +239,17 @@ class AttendanceRequest(CamelModel):
     attendance: Literal["attended", "no_show"] | None
 
 
+class FollowUpRequest(CamelModel):
+    subject: Annotated[Text, Field(min_length=1, max_length=150)]
+    message: Annotated[Text, Field(min_length=1, max_length=2000)]
+
+    @model_validator(mode="after")
+    def one_line_subject(self) -> Self:
+        if any(c in self.subject for c in "\r\n"):
+            raise ValueError("Please keep the subject on one line.")
+        return self
+
+
 class BlockDateRequest(CamelModel):
     date: dt.date
     reason: Annotated[Text, Field(max_length=80)] | None = None
@@ -272,16 +266,30 @@ class BlockDateResponse(CamelModel):
     affected: int
 
 
+class NoteInput(CamelModel):
+    body: Annotated[Text, Field(min_length=1, max_length=5000)]
+    person_id: uuid.UUID | None = None
+
+
+class NotePublic(CamelModel):
+    id: uuid.UUID
+    body: str
+    person_id: uuid.UUID | None
+    person_name: str | None = None
+    created_at: UtcOut
+    updated_at: UtcOut
+
+
 class PersonSummary(VisitorSummary):
     first_visit: UtcOut | None
     last_visit: UtcOut | None
     completed_count: int  # sessions marked as attended
     no_show_count: int
-    top_topic: Topic | None
 
 
 class PersonDetail(PersonSummary):
     bookings: list[BookingPublic]
+    notes: list[NotePublic]
 
 
 class AnalyticsRange(IntEnum):
@@ -297,11 +305,6 @@ class MonthStats(CamelModel):
     capacity: int
 
 
-class TopicCount(CamelModel):
-    topic: Topic
-    count: int
-
-
 class AnalyticsSummary(CamelModel):
     range_label: str
     sessions_held: int
@@ -313,5 +316,4 @@ class AnalyticsSummary(CamelModel):
     unmarked: int  # started, confirmed, attendance not recorded yet
     online_sessions: int
     monthly: list[MonthStats]
-    topics: list[TopicCount]
     frequent: list[PersonSummary]

@@ -11,7 +11,8 @@ from app import clock
 
 
 class Role(StrEnum):
-    visitor = "visitor"
+    """Only the prayer ministry signs in; visitors have no accounts."""
+
     admin = "admin"
 
 
@@ -21,7 +22,6 @@ class BookingStatus(StrEnum):
     declined = "declined"
     cancelled = "cancelled"
     cancelled_by_minister = "cancelled_by_minister"
-    rescheduled = "rescheduled"
     attended = "attended"  # the minister marked that they came
     no_show = "no_show"  # the minister marked that they didn't come
 
@@ -29,15 +29,6 @@ class BookingStatus(StrEnum):
 class Mode(StrEnum):
     in_person = "in_person"
     online = "online"
-
-
-class Topic(StrEnum):
-    healing = "healing"
-    emotional = "emotional"
-    family = "family"
-    deliverance = "deliverance"
-    forgiveness = "forgiveness"
-    other = "other"
 
 
 class EmailKind(StrEnum):
@@ -70,16 +61,29 @@ def _now() -> datetime:
 
 
 class User(SQLModel, table=True):
+    """A prayer minister who signs in to the admin dashboard."""
+
     __tablename__ = "users"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     email: str = Field(unique=True, max_length=254)
     full_name: str = Field(max_length=100)
-    phone: str = Field(max_length=32)
-    role: Role = Field(default=Role.visitor, sa_type=_enum(Role, "role"))
-    email_verified: bool = False
+    role: Role = Field(default=Role.admin, sa_type=_enum(Role, "role"))
     password_hash: str
     created_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ)
+
+
+class Person(SQLModel, table=True):
+    """Someone who has booked. No account: recognised by their email address."""
+
+    __tablename__ = "people"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    email: str = Field(unique=True, max_length=254)  # stored lower-case
+    full_name: str = Field(max_length=100)  # latest given
+    phone: str = Field(max_length=32)  # latest given
+    created_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ)
+    updated_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ)
 
 
 class AuthSession(SQLModel, table=True):
@@ -90,18 +94,6 @@ class AuthSession(SQLModel, table=True):
     token_hash: str = Field(primary_key=True, max_length=64)
     user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
     expires_at: datetime = Field(sa_type=TIMESTAMPTZ, index=True)
-
-
-class EmailCode(SQLModel, table=True):
-    """The current email verification code of a user."""
-
-    __tablename__ = "email_codes"
-
-    user_id: uuid.UUID = Field(foreign_key="users.id", primary_key=True)
-    code_hash: str = Field(max_length=64)
-    attempts: int = 0
-    created_at: datetime = Field(sa_type=TIMESTAMPTZ)
-    expires_at: datetime = Field(sa_type=TIMESTAMPTZ)
 
 
 class PasswordReset(SQLModel, table=True):
@@ -124,44 +116,46 @@ class Booking(SQLModel, table=True):
                 "status IN ('pending', 'confirmed', 'attended', 'no_show')"
             ),
         ),
-        # One open reschedule request per booking.
+        # One active booking per person (email) per Thursday.
         Index(
-            "uq_bookings_pending_reschedule",
-            "reschedule_of_id",
-            unique=True,
-            postgresql_where=text("status = 'pending'"),
-        ),
-        # One active booking per person per Thursday. A reschedule request may share
-        # its original's date, so those are checked under the booking lock instead.
-        Index(
-            "uq_bookings_user_date",
-            "user_id",
+            "uq_bookings_person_date",
+            "person_id",
             "session_date",
             unique=True,
-            postgresql_where=text(
-                "status IN ('pending', 'confirmed') AND reschedule_of_id IS NULL"
-            ),
+            postgresql_where=text("status IN ('pending', 'confirmed')"),
         ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    person_id: uuid.UUID = Field(foreign_key="people.id", index=True)
     slot_start: datetime = Field(sa_type=TIMESTAMPTZ, index=True)
     session_date: dt.date = Field(index=True)  # Calgary-local
     status: BookingStatus = Field(
         default=BookingStatus.pending, sa_type=_enum(BookingStatus, "booking_status")
     )
     mode: Mode = Field(sa_type=_enum(Mode, "mode"))
-    topic: Topic = Field(sa_type=_enum(Topic, "topic"))
     prayer_points: str = Field(max_length=500)
     online_reason: str | None = Field(default=None, max_length=200)
     zoom_link: str | None = Field(default=None, max_length=2083)
     decline_message: str | None = Field(default=None, max_length=300)
-    reschedule_of_id: uuid.UUID | None = Field(
-        default=None, foreign_key="bookings.id", index=True
-    )
     late_cancellation: bool = False
+    # When the minister last emailed them after a missed session.
+    follow_up_sent_at: datetime | None = Field(default=None, sa_type=TIMESTAMPTZ)
     created_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ)
+    updated_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ)
+
+
+class Note(SQLModel, table=True):
+    """The minister's private notes, optionally about one person."""
+
+    __tablename__ = "notes"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    body: str = Field(max_length=5000)
+    person_id: uuid.UUID | None = Field(
+        default=None, foreign_key="people.id", index=True
+    )
+    created_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ, index=True)
     updated_at: datetime = Field(default_factory=_now, sa_type=TIMESTAMPTZ)
 
 

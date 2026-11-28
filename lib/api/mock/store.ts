@@ -1,25 +1,34 @@
-import type { BlockedDate, Booking, User } from "@/lib/domain/types"
+import type { BlockedDate, Booking, Note, PersonContact, User } from "@/lib/domain/types"
 
 import { createSeed } from "./seed"
 
-export interface MockUserRecord extends User {
+export interface MockAdminRecord extends User {
   password: string
+}
+
+export interface MockPersonRecord extends PersonContact {
+  createdAt: string
+}
+
+/** A booking plus the private token behind its "manage my booking" link. */
+export interface MockBookingRecord extends Booking {
+  manageToken: string
 }
 
 export interface MockDbState {
   version: number
-  users: MockUserRecord[]
-  bookings: Booking[]
+  admins: MockAdminRecord[]
+  people: MockPersonRecord[]
+  bookings: MockBookingRecord[]
   blocked: BlockedDate[]
-  /** email -> pending verification code */
-  verification: Record<string, string>
+  notes: Note[]
   /** reset token -> email */
   resetTokens: Record<string, string>
 }
 
 const DB_KEY = "hpn.mock-db"
 const SESSION_KEY = "hpn.mock-session"
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 const hasStorage = () => typeof window !== "undefined" && !!window.localStorage
 
@@ -101,6 +110,13 @@ export const mockStore = new MockStore()
 let counter = 0
 export const newId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}${(counter++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
+
+/** An unguessable token for a "manage my booking" link. */
+export function newManageToken(): string {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
+}
 
 /** Simulated network latency so loading states are real. */
 export const latency = (min = 180, max = 420) =>

@@ -53,7 +53,7 @@ export function bookingsOnDay(bookings: AdminBooking[], key: string) {
 /** Sessions that already happened, newest first: the history list. */
 export function pastSessions(bookings: AdminBooking[], now: Date) {
   return bookings
-    .filter((b) => new Date(b.slotStart).getTime() <= now.getTime() && b.status !== "rescheduled")
+    .filter((b) => new Date(b.slotStart).getTime() <= now.getTime())
     .map((b) => ({ ...b, display: adminStatus(b, now) }))
     .sort((a, b) => b.slotStart.localeCompare(a.slotStart))
 }
@@ -63,11 +63,24 @@ export interface AttendanceDay {
   bookings: AdminBooking[]
 }
 
-/** Started sessions with no attendance recorded, grouped by Thursday, newest first. */
-export function attendanceToMark(bookings: AdminBooking[], now: Date): AttendanceDay[] {
+/** How long someone marked "didn't come" stays in the attendance card, for a follow-up email. */
+export const FOLLOW_UP_DAYS = 14
+
+const isRecentNoShow = (b: AdminBooking, now: Date) =>
+  b.status === "no_show" && now.getTime() - new Date(b.slotStart).getTime() <= FOLLOW_UP_DAYS * 24 * HOUR_MS
+
+/** Started sessions with no attendance recorded yet: the badge count. */
+export const unmarkedCount = (bookings: AdminBooking[], now: Date) =>
+  bookings.filter((b) => needsAttendance(b, now)).length
+
+/**
+ * The attendance card: sessions still to mark, plus recent no-shows so the
+ * minister can email them. Grouped by Thursday, newest first.
+ */
+export function attendanceDays(bookings: AdminBooking[], now: Date): AttendanceDay[] {
   const byDay = new Map<string, AdminBooking[]>()
   bookings
-    .filter((b) => needsAttendance(b, now))
+    .filter((b) => needsAttendance(b, now) || isRecentNoShow(b, now))
     .sort((a, b) => a.slotStart.localeCompare(b.slotStart))
     .forEach((b) => {
       const key = dateKey(b.slotStart)

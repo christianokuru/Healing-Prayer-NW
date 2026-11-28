@@ -7,7 +7,7 @@ from app.config import get_settings
 from app.db import SessionDep
 from app.errors import COMMON_RESPONSES, register_error_handlers
 from app.hardening import CrossOriginWriteMiddleware, SecurityHeadersMiddleware
-from app.routers import admin, auth, bookings, me
+from app.routers import admin, auth, bookings
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -39,7 +39,6 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth.router)
-app.include_router(me.router)
 app.include_router(bookings.router)
 app.include_router(admin.router)
 

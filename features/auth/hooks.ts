@@ -4,12 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 
 import { useApi } from "@/components/providers/api-provider"
-import type {
-  ChangePasswordInput,
-  LoginInput,
-  ProfileInput,
-  SignupInput,
-} from "@/lib/api/contracts"
+import type { LoginInput } from "@/lib/api/contracts"
 import { qk } from "@/lib/query/keys"
 import type { User } from "@/lib/domain/types"
 
@@ -22,10 +17,10 @@ export function useSession() {
   })
 }
 
-/** For components rendered inside <RequireRole>, where a user is guaranteed. */
+/** For components rendered inside <RequireAdmin>, where a user is guaranteed. */
 export function useUser(): User {
   const { data } = useSession()
-  if (!data) throw new Error("useUser must be used inside <RequireRole>")
+  if (!data) throw new Error("useUser must be used inside <RequireAdmin>")
   return data
 }
 
@@ -41,25 +36,6 @@ export function useLogin() {
   })
 }
 
-export function useSignup() {
-  const api = useApi()
-  return useMutation({ mutationFn: (input: SignupInput) => api.auth.signup(input) })
-}
-
-export function useVerifyEmail() {
-  const api = useApi()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ email, code }: { email: string; code: string }) => api.auth.verifyEmail(email, code),
-    onSuccess: (user) => qc.setQueryData(qk.session, user),
-  })
-}
-
-export function useResendVerification() {
-  const api = useApi()
-  return useMutation({ mutationFn: (email: string) => api.auth.resendVerification(email) })
-}
-
 export function useRequestPasswordReset() {
   const api = useApi()
   return useMutation({ mutationFn: (email: string) => api.auth.requestPasswordReset(email) })
@@ -71,20 +47,6 @@ export function useResetPassword() {
     mutationFn: ({ token, password }: { token: string; password: string }) =>
       api.auth.resetPassword(token, password),
   })
-}
-
-export function useUpdateProfile() {
-  const api = useApi()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (input: ProfileInput) => api.auth.updateProfile(input),
-    onSuccess: (user) => qc.setQueryData(qk.session, user),
-  })
-}
-
-export function useChangePassword() {
-  const api = useApi()
-  return useMutation({ mutationFn: (input: ChangePasswordInput) => api.auth.changePassword(input) })
 }
 
 export function useLogout() {

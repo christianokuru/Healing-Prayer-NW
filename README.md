@@ -1,8 +1,13 @@
-# Healing Prayer Northwest — frontend
+# Healing Prayer Northwest
 
 Booking platform for free, 30-minute prayer sessions (Thursdays, 7–9 pm, Calgary).
-This repo is the **frontend only** (Next.js 16 + shadcn/ui). The API and database are built separately in FastAPI.
-Until that API is ready, everything runs against a **mock API in the browser**, so every screen works end to end.
+Visitors book **without an account** (many are elderly): name, email, phone, prayer points, date and time.
+Everything after that happens by email, and each email carries a private "manage my booking" link.
+Only the prayer minister signs in.
+
+- **Frontend:** this folder (Next.js 16 + shadcn/ui). Until it is connected to the API, it runs against a
+  **mock API in the browser**, so every screen works end to end.
+- **Backend:** [`backend/`](backend/README.md) (FastAPI + PostgreSQL).
 
 ## Run it
 
@@ -10,35 +15,41 @@ Until that API is ready, everything runs against a **mock API in the browser**, 
 npm install
 npm run dev        # http://localhost:3000
 npm run build && npm start   # production build
-npm test           # unit tests (booking rules, wizard, Calgary time, redirects)
+npm test           # unit tests (booking rules, wizard, Calgary time, redirects, follow-ups)
 npm run lint
 npm run typecheck
 ```
 
-### Demo accounts (mock mode only)
+### Demo (mock mode only)
 
-| Role | Email | Password |
-| --- | --- | --- |
-| Visitor | `grace@example.com` | `prayer-demo-1` |
-| Prayer minister (admin) | `janis@example.com` | `admin-demo-1` |
+- **Visitors:** just book at `/`. No email is really sent, so the success page links straight to the
+  manage page the email would open.
+- **Prayer minister:** `/login` with `janis@example.com` / `admin-demo-1` (one-tap button on the page).
 
-The login page has one-tap buttons for both. The email-confirmation code in mock mode is `123456`.
 Demo data lives in the browser's `localStorage`; **Account menu → Reset demo data** starts fresh.
 
 ## What's built
 
-- **Auth:** log in, sign up, confirm email (6-digit code), forgot / reset password, profile and password change.
-- **Visitor:** home with next session, 4-step booking (Thursday → time → prayer points → review), reschedule (needs re-approval), withdraw / cancel (48 h+), "Can't make it?" late notice (< 48 h), add to calendar (.ics), directions, Zoom link once approved.
-- **Admin:** overview (requests sorted by urgency, approve / decline with Undo, Zoom link required for online), attendance (mark who came and who didn't, from the overview or calendar, with Undo; this is where no-shows come from), calendar (tap a Thursday, approve, cancel or restore a Thursday), history (search, ranges, spreadsheet export, per-person prayer history), analytics.
+- **Public booking** (`/`): Thursday → time → details (name, email, phone, prayer points, optional
+  "join by Zoom" with a reason) → review. Hidden honeypot field for bots. No account.
+- **Manage my booking** (`/manage/[token]`, the private link in every email): status, Zoom link once
+  approved, add to calendar, directions, cancel / withdraw (48 h+), "I can't make it" (< 48 h). No rescheduling:
+  cancel and book again.
+- **Privacy notice** (`/privacy`): plain-language draft for the ministry to review (`PRIVACY` in `lib/config/ministry.ts`).
+- **Prayer minister login:** log in, forgot / reset password.
+- **Admin:** overview (requests sorted by urgency with tap-to-call / email, approve / decline with Undo, Zoom link required
+  for online), attendance (mark who came and who didn't, with Undo; email anyone who didn't come a personal
+  follow-up, from a kind editable draft), calendar, history (search, ranges, spreadsheet export, per-person history),
+  notes (dated, searchable, optionally about a person and shown on their history), analytics.
 - **PWA:** manifest, icons, install prompt (Android) and Add-to-Home-Screen guide (iPhone). There is no offline mode: the old service worker was removed, and `public/sw.js` is now a kill switch that unregisters it on phones that still have it.
 - Mobile-first: bottom tab bars on phones, 44 px+ touch targets, safe-area aware. Lenis smooth scrolling on wheel/trackpad (native on touch, off for reduced motion).
 
 ## Booking rules (enforced in `lib/domain/booking-rules.ts`)
 
 - Sessions: Thursdays 7:00, 7:30, 8:00, 8:30 pm Calgary time (`lib/config/ministry.ts`).
-- Book from 48 hours to 1 month ahead; one booking per person per Thursday.
+- Book from 48 hours to 1 month ahead; one booking per person (email address) per Thursday.
 - Every request needs approval; a pending request holds its slot.
-- Visitors can change or cancel up to 48 h before. Reschedules keep the original until the new time is approved.
+- Visitors can cancel from their link up to 48 h before; inside 48 h they can say they can't come.
 - Cancelling a Thursday cancels its active bookings (visitors are emailed by the backend).
 
 All times are stored in UTC and shown in `America/Edmonton` using the IANA zone, so offset changes are handled automatically
@@ -47,9 +58,9 @@ All times are stored in UTC and shown in `America/Edmonton` using the IANA zone,
 ## Architecture
 
 ```
-app/                 Routes only (thin). (auth)/, dashboard/, admin/, manifest
+app/                 Routes only (thin). (public)/ (booking, manage, privacy), (auth)/, admin/, manifest
 features/            One folder per feature: components + hooks + pure logic
-  auth/  booking/  visitor/  admin/  pwa/
+  public/  booking/  manage/  auth/  admin/  pwa/
 components/          Shared UI: ui/ (shadcn), common/, forms/, layout/, brand/, providers/
 lib/
   config/            Ministry constants (schedule, address, limits)
@@ -57,7 +68,7 @@ lib/
   api/contracts.ts   The API interfaces the UI depends on
   api/mock/          Browser mock implementation (the only thing to replace)
   query/keys.ts      TanStack Query keys
-proxy.ts             Optimistic route guard (role cookie)
+proxy.ts             Keeps /admin behind the minister's login (role cookie)
 public/sw.js         Removes the old service worker (keep for a few months)
 ```
 

@@ -16,7 +16,7 @@ uv run fastapi dev               # http://127.0.0.1:8000, docs at /docs
 uv run python -m app.worker      # separate terminal: emails and daily jobs
 ```
 
-Without `SMTP_HOST` the worker prints emails, including verification codes.
+Without `SMTP_HOST` the worker prints emails, including visitors' manage links.
 
 Checks: `uv run pytest`, `uv run ruff check .`, `uv run ty check`. Tests use (and wipe)
 a separate `hpn_test` database; override it with `TEST_DATABASE_URL`.
@@ -29,11 +29,11 @@ a separate `hpn_test` database; override it with `TEST_DATABASE_URL`.
 | OpenAPI | `/openapi.json` |
 | Field names | camelCase; optional booking fields are `null` when empty |
 | Session cookie | `hpn_session` |
-| Demo accounts | `janis@example.com` / `admin-demo-1`, `grace@example.com` / `prayer-demo-1` |
+| Demo login | `janis@example.com` / `admin-demo-1` (the prayer minister; visitors have no accounts) |
 
 ### Polling for slots
 
-`GET /availability/slots` (visitor session; optional `date`, `excludeBookingId`) returns
+`GET /availability/slots` (public; optional `date`) returns
 `{ pollAfterSeconds, days: [{ date, state, openCount, slots }] }`. Wait
 `pollAfterSeconds`, then send the last `ETag` as `If-None-Match`; a 304 means nothing
 changed. On 429, wait for `Retry-After`. Stop polling while the tab is hidden. The result
@@ -45,20 +45,31 @@ Beyond the spec's error codes:
 - A body over 64 KB gets a plain-text 413 and an unknown `Host` a plain-text 400, the
   only errors outside the shared shape.
 
+## Visitors have no accounts
+
+- `POST /bookings` takes `fullName`, `email`, `phone`, `prayerPoints`, `slotStart`, and optional
+  `online` + `onlineReason`. People are recognised by email (stored lower-case); their latest name
+  and phone are kept. One active booking per email per Thursday, enforced by a unique index.
+- The response and every visitor email include a private token for `/manage/{token}`
+  (view, `cancel`, `late-notice`). The token is the booking ID plus an HMAC signature with
+  `SECRET_KEY`, so nothing is stored and it can't be forged; rotating the key invalidates every link.
+- A hidden `website` field is a honeypot: if filled in, the request is refused without saying why.
+- Bookings are rate-limited per IP and per email.
+
 ## Decisions where the spec was open
 
 - `returningPeople`: prayed for in the range and completed at least two sessions overall.
 - `frequent`: statistics are for the selected range. `attendanceRate` is 0 with no data.
 - Attendance: `PUT /admin/bookings/{id}/attendance` with `{ "attendance": "attended" | "no_show" | null }`,
   allowed from the session's start on confirmed, attended or no-show bookings (`null` clears it). Only
-  `attended` counts as held (visits, topics, frequent, `sessionsHeld`); started but unmarked
-  sessions are reported as `unmarked`. The "we missed you" email is sent at most once per booking.
+  `attended` counts as held (visits, frequent, `sessionsHeld`); started but unmarked
+  sessions are reported as `unmarked`. Marking attendance sends no email.
+- Follow-up: `POST /admin/bookings/{id}/follow-up` `{ subject, message }` sends the minister's own words
+  to someone marked `no_show` and records `followUpSentAt`.
 - `/admin/bookings`: `from` is inclusive, `to` exclusive.
 - Slots outside the booking window are shown as `taken`.
-- Undoing a decision is refused (`invalid_state`) if the slot was taken since, the
-  Thursday was cancelled, or the visitor has asked to move that session.
-- Approving a reschedule after the original session took place keeps the original as held.
-- A late notice leaves a pending reschedule request in place.
+- Undoing a decline is refused (`invalid_state`) if the slot was taken since, the Thursday was
+  cancelled, or the person has booked that Thursday again.
 - Resetting a password by email also confirms the email, and signs out every device.
 
 ## How it fits together

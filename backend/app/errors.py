@@ -11,15 +11,12 @@ class ErrorCode(StrEnum):
     unauthenticated = "unauthenticated"
     invalid_credentials = "invalid_credentials"
     forbidden = "forbidden"
-    email_not_verified = "email_not_verified"
     not_found = "not_found"
-    email_taken = "email_taken"
     slot_taken = "slot_taken"
     one_per_thursday = "one_per_thursday"
     date_unavailable = "date_unavailable"
     too_late = "too_late"
     invalid_state = "invalid_state"
-    invalid_code = "invalid_code"
     invalid_token = "invalid_token"
     outside_window = "outside_window"
     validation = "validation"
@@ -33,11 +30,13 @@ ERRORS: dict[ErrorCode, tuple[int, str]] = {
     C.unauthenticated: (401, "Please log in to continue."),
     C.invalid_credentials: (401, "That email or password doesn't match."),
     C.forbidden: (403, "You don't have access to this."),
-    C.email_not_verified: (403, "Please confirm your email first."),
     C.not_found: (404, "We couldn't find that."),
-    C.email_taken: (409, "There is already an account with this email."),
     C.slot_taken: (409, "Someone just took that time. Please choose another one."),
-    C.one_per_thursday: (409, "You already have a session that Thursday."),
+    C.one_per_thursday: (
+        409,
+        "You already have a session booked that Thursday. "
+        "You can book one session per Thursday.",
+    ),
     C.date_unavailable: (
         409,
         "There are no sessions that Thursday. Please choose another date.",
@@ -47,7 +46,6 @@ ERRORS: dict[ErrorCode, tuple[int, str]] = {
         "It's less than 48 hours before this session, so it can't be changed online.",
     ),
     C.invalid_state: (409, "This can't be done right now."),
-    C.invalid_code: (400, "That code isn't right, or it has expired."),
     C.invalid_token: (400, "This reset link is invalid or has expired."),
     C.outside_window: (
         422,
@@ -63,12 +61,13 @@ FIELD_LABELS = {
     "email": "your email address",
     "phone": "your phone number",
     "password": "the password (at least 8 characters)",
-    "newPassword": "the new password (at least 8 characters)",
     "prayerPoints": "your prayer points (up to 500 characters)",
     "onlineReason": "the reason for meeting online (up to 200 characters)",
     "slotStart": "the time you chose",
     "zoomLink": "the Zoom link",
     "message": "your message",
+    "subject": "the subject",
+    "body": "the note",
     "reason": "the reason",
 }
 

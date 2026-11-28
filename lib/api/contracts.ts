@@ -2,12 +2,11 @@ import type {
   AdminBooking,
   AnalyticsSummary,
   Attendance,
-  AttendanceMode,
   BlockedDate,
-  Booking,
+  ManagedBooking,
+  Note,
   PersonDetail,
   PersonSummary,
-  PrayerTopic,
   ThursdayAvailability,
   User,
 } from "@/lib/domain/types"
@@ -18,64 +17,53 @@ import type {
  * Next.js server (which forwards the FastAPI session cookie) replaces it later.
  */
 
+/* ---------- Prayer minister sign-in ---------- */
+
 export interface LoginInput {
   email: string
   password: string
 }
 
-export interface SignupInput {
-  fullName: string
-  email: string
-  phone: string
-  password: string
-}
-
-export interface ProfileInput {
-  fullName: string
-  phone: string
-}
-
-export interface ChangePasswordInput {
-  currentPassword: string
-  newPassword: string
-}
-
 export interface AuthApi {
   getSession(): Promise<User | null>
   login(input: LoginInput): Promise<User>
-  signup(input: SignupInput): Promise<{ email: string }>
-  verifyEmail(email: string, code: string): Promise<User>
-  resendVerification(email: string): Promise<void>
   requestPasswordReset(email: string): Promise<void>
   resetPassword(token: string, password: string): Promise<void>
-  updateProfile(input: ProfileInput): Promise<User>
-  changePassword(input: ChangePasswordInput): Promise<void>
   logout(): Promise<void>
 }
 
+/* ---------- Public booking (no account) ---------- */
+
 export interface CreateBookingInput {
-  slotStart: string
-  mode: AttendanceMode
-  topic: PrayerTopic
+  fullName: string
+  email: string
+  phone: string
   prayerPoints: string
-  onlineReason?: string
-}
-
-export interface RescheduleInput {
-  bookingId: string
   slotStart: string
+  /** "I can't come in person, please join by Zoom." */
+  online: boolean
+  onlineReason?: string
+  /** Honeypot: real people never fill it in. */
+  website?: string
 }
 
-export interface VisitorApi {
-  getAvailability(options?: { excludeBookingId?: string }): Promise<ThursdayAvailability[]>
-  listMyBookings(): Promise<Booking[]>
-  createBooking(input: CreateBookingInput): Promise<Booking>
-  requestReschedule(input: RescheduleInput): Promise<Booking>
-  /** Cancels a booking (or withdraws a pending request) with 48h+ notice. */
-  cancelBooking(bookingId: string): Promise<Booking>
-  /** Inside 48h: tells the minister the visitor can't come. */
-  sendLateNotice(bookingId: string, message?: string): Promise<Booking>
+export interface CreatedBooking {
+  booking: ManagedBooking
+  /** Private token for the "manage my booking" link (also emailed). */
+  manageToken: string
 }
+
+export interface PublicApi {
+  getAvailability(): Promise<ThursdayAvailability[]>
+  createBooking(input: CreateBookingInput): Promise<CreatedBooking>
+  getManagedBooking(token: string): Promise<ManagedBooking>
+  /** Cancels (or withdraws a request) with 48h+ notice. */
+  cancelManagedBooking(token: string): Promise<ManagedBooking>
+  /** Inside 48h: tells the minister they can't come. */
+  sendLateNotice(token: string, message?: string): Promise<ManagedBooking>
+}
+
+/* ---------- Admin ---------- */
 
 export interface ApproveInput {
   bookingId: string
@@ -85,6 +73,17 @@ export interface ApproveInput {
 export interface DeclineInput {
   bookingId: string
   message?: string
+}
+
+export interface FollowUpInput {
+  bookingId: string
+  subject: string
+  message: string
+}
+
+export interface NoteInput {
+  body: string
+  personId?: string | null
 }
 
 export interface AdminApi {
@@ -97,6 +96,8 @@ export interface AdminApi {
    * Works on confirmed, attended or no-show bookings; `null` clears it back to confirmed.
    */
   setAttendance(bookingId: string, attendance: Attendance | null): Promise<AdminBooking>
+  /** A personal email to someone who missed their session. */
+  sendFollowUp(input: FollowUpInput): Promise<AdminBooking>
   listBlockedDates(): Promise<BlockedDate[]>
   /** Blocks a session day; active bookings that day are cancelled and emailed. */
   blockDate(date: string, reason?: string): Promise<{ blocked: BlockedDate; affected: number }>
@@ -104,10 +105,14 @@ export interface AdminApi {
   listPeople(): Promise<PersonSummary[]>
   getPerson(personId: string): Promise<PersonDetail>
   getAnalytics(months?: number): Promise<AnalyticsSummary>
+  listNotes(options?: { personId?: string }): Promise<Note[]>
+  createNote(input: NoteInput): Promise<Note>
+  updateNote(noteId: string, input: NoteInput): Promise<Note>
+  deleteNote(noteId: string): Promise<void>
 }
 
 export interface Api {
   auth: AuthApi
-  visitor: VisitorApi
+  public: PublicApi
   admin: AdminApi
 }

@@ -1,8 +1,8 @@
 import type { Role } from "@/lib/domain/types"
 
 /**
- * A small, non-sensitive cookie that only tells `proxy.ts` whether someone
- * is signed in and with which role, so it can redirect before rendering.
+ * A small, non-sensitive cookie that only tells `proxy.ts` whether the
+ * prayer minister is signed in, so it can redirect before rendering.
  * It is an *optimistic* hint: real authorization always happens in the API.
  *
  * Mock mode: set from the browser. Live mode: the Next.js server sets it
@@ -10,7 +10,7 @@ import type { Role } from "@/lib/domain/types"
  */
 export const ROLE_COOKIE = "hpn_role"
 
-export const homeFor = (role: Role) => (role === "admin" ? "/admin" : "/dashboard")
+export const ADMIN_HOME = "/admin"
 
 export function writeRoleCookie(role: Role | null) {
   if (typeof document === "undefined") return
@@ -20,6 +20,4 @@ export function writeRoleCookie(role: Role | null) {
     : `${ROLE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
 }
 
-export function isRole(v: string | undefined): v is Role {
-  return v === "visitor" || v === "admin"
-}
+export const isAdminCookie = (v: string | undefined) => v === "admin"

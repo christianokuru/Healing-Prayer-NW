@@ -5,7 +5,7 @@ import type { WizardStep } from "../state"
 const LABELS: Record<WizardStep, string> = {
   day: "Thursday",
   time: "Time",
-  details: "Prayer points",
+  details: "Details",
   review: "Review",
   done: "Done",
 }

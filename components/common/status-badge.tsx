@@ -5,7 +5,6 @@ import {
   CircleCheckBigIcon,
   CircleDashedIcon,
   ClockIcon,
-  RepeatIcon,
   UserXIcon,
   XIcon,
   type LucideIcon,
@@ -33,7 +32,6 @@ export const STATUS_META: Record<DisplayStatus, { label: string; tone: Tone; ico
   declined: { label: "Declined", tone: "neutral", icon: XIcon },
   cancelled: { label: "Cancelled", tone: "neutral", icon: BanIcon },
   cancelled_by_minister: { label: "Cancelled by ministry", tone: "neutral", icon: BanIcon },
-  rescheduled: { label: "Moved to a new time", tone: "neutral", icon: RepeatIcon },
   no_show: { label: "Missed", tone: "danger", icon: UserXIcon },
   expired: { label: "Not confirmed in time", tone: "neutral", icon: ClockIcon },
 }

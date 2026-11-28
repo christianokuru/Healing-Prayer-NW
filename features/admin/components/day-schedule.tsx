@@ -6,12 +6,12 @@ import { VideoIcon } from "lucide-react"
 import { ADMIN_STATUS_LABEL, StatusBadge, ToneBadge } from "@/components/common/status-badge"
 import { canMarkAttendance } from "@/lib/domain/booking-rules"
 import { fmt } from "@/lib/domain/time"
-import { topicLabel } from "@/lib/domain/topics"
 import type { DisplayStatus } from "@/lib/domain/types"
 
 import type { DaySlotRow } from "../selectors"
 import { AttendanceControl } from "./attendance-control"
 import { DecisionButtons } from "./decision-buttons"
+import { ContactLinks } from "./request-card"
 
 /** The four slots of one Thursday with whatever can be done on each. */
 export function DaySchedule({ rows, now, detailed }: { rows: DaySlotRow[]; now: Date; detailed?: boolean }) {
@@ -36,9 +36,8 @@ export function DaySchedule({ rows, now, detailed }: { rows: DaySlotRow[]; now: 
 
           {booking && detailed && (
             <div className="mt-2 pl-0 sm:pl-[80px]">
-              <p className="text-sm text-[#44564f]">
-                <span className="font-medium">{topicLabel(booking.topic)}:</span> “{booking.prayerPoints}”
-              </p>
+              <p className="text-sm text-[#44564f]">“{booking.prayerPoints}”</p>
+              <ContactLinks person={booking.visitor} className="mt-1.5" />
               {booking.mode === "online" && booking.onlineReason && (
                 <p className="mt-1 text-sm text-info-foreground">Asked for Zoom: {booking.onlineReason}</p>
               )}

@@ -11,6 +11,11 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  images: {
+    // Free photos from Unsplash (Unsplash License), loaded from their CDN as Unsplash asks.
+    // Only plain photo paths: no query strings, so the optimiser can't be pointed at other URLs.
+    remotePatterns: [{ protocol: "https", hostname: "images.unsplash.com", pathname: "/photo-**", search: "" }],
+  },
   turbopack: {
     rules: {
       "*.css": {

@@ -6,17 +6,10 @@ from app.deps import CurrentUserDep, SessionTokenDep
 from app.errors import ErrorCode, error_responses
 from app.models import User
 from app.rate_limit import client_ip, hit
-from app.schemas import (
-    EmailRequest,
-    LoginRequest,
-    ResetPasswordRequest,
-    SignupRequest,
-    SignupResponse,
-    UserPublic,
-    VerifyEmailRequest,
-)
+from app.schemas import EmailRequest, LoginRequest, ResetPasswordRequest, UserPublic
 from app.services import accounts
 
+# Only the prayer ministry signs in; visitors book without an account.
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 MINUTE = 60
@@ -48,49 +41,9 @@ def _log_in(
 
 
 @router.post(
-    "/signup",
-    status_code=status.HTTP_201_CREATED,
-    responses=error_responses(ErrorCode.email_taken),
-)
-def signup(
-    data: SignupRequest, request: Request, session: SessionDep
-) -> SignupResponse:
-    hit(session, "signup-ip", client_ip(request), 60, HOUR)
-    hit(session, "signup", data.email, 10, HOUR)
-    return SignupResponse(email=accounts.signup(session, data).email)
-
-
-@router.post(
-    "/verify-email",
-    response_model=UserPublic,
-    responses=error_responses(ErrorCode.invalid_code, ErrorCode.not_found),
-)
-def verify_email(
-    data: VerifyEmailRequest,
-    response: Response,
-    session: SessionDep,
-    token: SessionTokenDep,
-) -> User:
-    hit(session, "verify", data.email, 15, 30 * MINUTE)
-    user = accounts.verify_email(session, data.email, data.code)
-    return _log_in(session, response, user, token)
-
-
-@router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
-def resend_verification(
-    data: EmailRequest, request: Request, session: SessionDep
-) -> None:
-    hit(session, "resend-ip", client_ip(request), 120, HOUR)
-    hit(session, "resend", data.email, 10, HOUR)
-    accounts.resend_code(session, data.email)
-
-
-@router.post(
     "/login",
     response_model=UserPublic,
-    responses=error_responses(
-        ErrorCode.invalid_credentials, ErrorCode.email_not_verified
-    ),
+    responses=error_responses(ErrorCode.invalid_credentials),
 )
 def login(
     data: LoginRequest,

@@ -1,4 +1,6 @@
-"""Booking rules (section 3 of the handoff spec)."""
+"""Booking rules. Visitors have no accounts: they book with their contact
+details, are recognised by email, and manage a booking through a private link.
+"""
 
 import datetime as dt
 import uuid
@@ -18,7 +20,7 @@ from app.models import (
     Booking,
     BookingStatus,
     Mode,
-    User,
+    Person,
 )
 from app.schedule import (
     NOTICE,
@@ -31,11 +33,14 @@ from app.schedule import (
 )
 from app.schemas import (
     BookingCreate,
+    CreatedBooking,
     DayState,
+    ManagedBooking,
     SlotAvailability,
     SlotState,
     ThursdayAvailability,
 )
+from app.security import booking_id_from_token, manage_token
 
 _LOCK_ID = 4_158_201
 
@@ -73,11 +78,8 @@ def _get(session: Session, booking_id: uuid.UUID) -> Booking:
     return booking
 
 
-def _get_own(session: Session, user: User, booking_id: uuid.UUID) -> Booking:
-    booking = _get(session, booking_id)
-    if booking.user_id != user.id:
-        raise AppError(ErrorCode.not_found)
-    return booking
+def _person(session: Session, booking: Booking) -> Person:
+    return session.get_one(Person, booking.person_id)
 
 
 def _holder(session: Session, slot: datetime) -> Booking | None:
@@ -89,31 +91,23 @@ def _holder(session: Session, slot: datetime) -> Booking | None:
 
 
 def _has_active_on(
-    session: Session, user_id: uuid.UUID, day: dt.date, ignore: set[uuid.UUID]
+    session: Session, person_id: uuid.UUID, day: dt.date, ignore: uuid.UUID | None
 ) -> bool:
     found = session.exec(
         select(Booking.id).where(
-            Booking.user_id == user_id,
+            Booking.person_id == person_id,
             Booking.session_date == day,
             col(Booking.status).in_(ACTIVE),
         )
     )
-    return any(booking_id not in ignore for booking_id in found)
+    return any(booking_id != ignore for booking_id in found)
 
 
-def _pending_reschedule(session: Session, booking: Booking) -> Booking | None:
-    return session.exec(
-        select(Booking).where(
-            Booking.reschedule_of_id == booking.id,
-            Booking.status == BookingStatus.pending,
-        )
-    ).first()
+def _find_person(session: Session, email: str) -> Person | None:
+    return session.exec(select(Person).where(Person.email == email)).first()
 
 
-def _check_requestable(
-    session: Session, user: User, slot: datetime, moving: Booking | None = None
-) -> None:
-    ignore = {moving.id} if moving else set()
+def _check_requestable(session: Session, person: Person | None, slot: datetime) -> None:
     day = local_date(slot)
     if not is_slot(slot):
         raise AppError(
@@ -124,18 +118,36 @@ def _check_requestable(
     if not in_window(slot, clock.utcnow()):
         raise AppError(ErrorCode.outside_window)
     holder = _holder(session, slot)
-    if holder and holder.id not in ignore and holder.user_id != user.id:
+    # Their own slot again is "one per Thursday", which explains it better.
+    if holder and (person is None or holder.person_id != person.id):
         raise AppError(ErrorCode.slot_taken)
-    if _has_active_on(session, user.id, day, ignore):
+    if person and _has_active_on(session, person.id, day, None):
         raise AppError(ErrorCode.one_per_thursday)
 
 
-# --- Visitor
+def to_managed(booking: Booking, person: Person) -> ManagedBooking:
+    return ManagedBooking(
+        id=booking.id,
+        slot_start=booking.slot_start,
+        status=booking.status,
+        mode=booking.mode,
+        full_name=person.full_name,
+        email=person.email,
+        prayer_points=booking.prayer_points,
+        # Only once approved: a declined or cancelled session has no meeting.
+        zoom_link=booking.zoom_link
+        if booking.status is BookingStatus.confirmed
+        else None,
+        decline_message=booking.decline_message,
+        late_cancellation=booking.late_cancellation,
+    )
 
 
-def availability(
-    session: Session, user: User, exclude_id: uuid.UUID | None
-) -> list[ThursdayAvailability]:
+# --- Public
+
+
+def availability(session: Session) -> list[ThursdayAvailability]:
+    """Every bookable Thursday. Never says who holds a slot, only if it's open."""
     now = clock.utcnow()
     days = upcoming_thursdays(now)
     blocked = set(
@@ -143,155 +155,117 @@ def availability(
             select(col(BlockedDate.date)).where(col(BlockedDate.date).in_(days))
         )
     )
-    by_slot: dict[datetime, Booking] = {}
-    mine: dict[dt.date, Booking] = {}
-    for booking in session.exec(
-        select(Booking)
-        .where(col(Booking.session_date).in_(days), col(Booking.status).in_(HOLDS_SLOT))
-        .order_by(col(Booking.slot_start))
-    ):
-        own = booking.user_id == user.id
-        if own and booking.id == exclude_id:
-            continue
-        by_slot[booking.slot_start] = booking
-        if own and booking.status in ACTIVE:
-            mine.setdefault(booking.session_date, booking)
-
+    held = set(
+        session.exec(
+            select(col(Booking.slot_start)).where(
+                col(Booking.session_date).in_(days),
+                col(Booking.status).in_(HOLDS_SLOT),
+            )
+        )
+    )
     result = []
     for day in days:
         is_blocked = day in blocked
-        slots = []
-        for start in slots_on(day):
-            holder = by_slot.get(start)
-            if holder and holder.user_id == user.id and holder.status in ACTIVE:
-                state = SlotState.mine
-            elif holder or is_blocked or not in_window(start, now):
-                state = SlotState.taken
-            else:
-                state = SlotState.open
-            slots.append(SlotAvailability(start=start, state=state))
+        slots = [
+            SlotAvailability(
+                start=start,
+                state=SlotState.taken
+                if start in held or is_blocked or not in_window(start, now)
+                else SlotState.open,
+            )
+            for start in slots_on(day)
+        ]
         free = sum(s.state is SlotState.open for s in slots)
-        my_booking = mine.get(day)
         if is_blocked:
-            day_state = DayState.cancelled
-        elif my_booking:
-            day_state = DayState.booked_by_me
+            state = DayState.cancelled
         elif not any(in_window(s.start, now) for s in slots):
-            day_state = DayState.closed
+            state = DayState.closed
         elif not free:
-            day_state = DayState.full
+            state = DayState.full
         else:
-            day_state = DayState.open
+            state = DayState.open
         result.append(
             ThursdayAvailability(
                 date=day,
-                state=day_state,
-                open_count=free if day_state is DayState.open else 0,
+                state=state,
+                open_count=free if state is DayState.open else 0,
                 slots=slots,
-                my_booking_id=my_booking.id
-                if my_booking and day_state is DayState.booked_by_me
-                else None,
             )
         )
     return result
 
 
-def list_own(session: Session, user: User) -> list[Booking]:
-    return list(
-        session.exec(
-            select(Booking)
-            .where(Booking.user_id == user.id)
-            .order_by(col(Booking.slot_start), col(Booking.created_at))
-        )
-    )
-
-
-def create(session: Session, user: User, data: BookingCreate) -> Booking:
+def create(session: Session, data: BookingCreate) -> CreatedBooking:
     _lock(session)
-    _check_requestable(session, user, data.slot_start)
+    person = _find_person(session, data.email)
+    _check_requestable(session, person, data.slot_start)
+    now = clock.utcnow()
+    if person is None:
+        person = Person(email=data.email, full_name=data.full_name, phone=data.phone)
+        session.add(person)
+    else:
+        # Keep their latest details; the email address identifies them.
+        person.full_name = data.full_name
+        person.phone = data.phone
+        person.updated_at = now
+    session.flush()
     booking = Booking(
-        user_id=user.id,
+        person_id=person.id,
         slot_start=data.slot_start,
         session_date=local_date(data.slot_start),
-        mode=data.mode,
-        topic=data.topic,
+        mode=Mode.online if data.online else Mode.in_person,
         prayer_points=data.prayer_points,
         online_reason=data.online_reason,
     )
     session.add(booking)
     session.flush()
-    emails.new_request(session, booking, user)
-    return _commit(session, booking)
-
-
-def reschedule(
-    session: Session, user: User, booking_id: uuid.UUID, slot: datetime
-) -> Booking:
-    _lock(session)
-    original = _get_own(session, user, booking_id)
-    if original.status not in ACTIVE:
-        raise AppError(ErrorCode.invalid_state, "This session can't be moved.")
-    was_pending = original.status is BookingStatus.pending
-    if was_pending and original.reschedule_of_id:
-        raise AppError(
-            ErrorCode.invalid_state,
-            "This change is still waiting for approval, so it can't be moved again.",
-        )
-    if _pending_reschedule(session, original):
-        raise AppError(
-            ErrorCode.invalid_state,
-            "You've already asked to move this session. Please wait for an answer.",
-        )
-    if original.slot_start - clock.utcnow() < NOTICE:
-        raise AppError(ErrorCode.too_late)
-    if slot == original.slot_start:
-        raise AppError(ErrorCode.validation, "Please choose a different time.")
-    _check_requestable(session, user, slot, moving=original)
-    if was_pending:
-        _set_status(session, original, BookingStatus.rescheduled)
-        session.flush()
-    booking = Booking(
-        user_id=user.id,
-        slot_start=slot,
-        session_date=local_date(slot),
-        mode=original.mode,
-        topic=original.topic,
-        prayer_points=original.prayer_points,
-        online_reason=original.online_reason,
-        reschedule_of_id=None if was_pending else original.id,
+    emails.new_request(session, booking, person)
+    booking = _commit(session, booking)
+    session.refresh(person)
+    return CreatedBooking(
+        booking=to_managed(booking, person), manage_token=manage_token(booking.id)
     )
-    session.add(booking)
-    session.flush()
-    emails.new_request(session, booking, user)
-    return _commit(session, booking)
 
 
-def cancel(session: Session, user: User, booking_id: uuid.UUID) -> Booking:
+def _by_token(session: Session, token: str) -> tuple[Booking, Person]:
+    booking_id = booking_id_from_token(token)
+    booking = (
+        session.get(Booking, booking_id, populate_existing=True) if booking_id else None
+    )
+    if booking is None:
+        raise AppError(
+            ErrorCode.not_found,
+            "We couldn't find that booking. Please open the link from your email again.",
+        )
+    return booking, _person(session, booking)
+
+
+def get_managed(session: Session, token: str) -> ManagedBooking:
+    return to_managed(*_by_token(session, token))
+
+
+def cancel(session: Session, token: str) -> ManagedBooking:
     _lock(session)
-    booking = _get_own(session, user, booking_id)
+    booking, person = _by_token(session, token)
     if booking.status not in ACTIVE:
-        raise AppError(ErrorCode.invalid_state, "This session can't be cancelled.")
+        raise AppError(ErrorCode.invalid_state, "This booking can't be cancelled.")
     if booking.slot_start - clock.utcnow() < NOTICE:
         raise AppError(ErrorCode.too_late)
-    request = _pending_reschedule(session, booking)
-    if request:
-        _set_status(session, request, BookingStatus.cancelled)
     _set_status(session, booking, BookingStatus.cancelled)
-    return _commit(session, booking)
+    emails.cancelled(session, booking, person)
+    return to_managed(_commit(session, booking), person)
 
 
-def late_notice(
-    session: Session, user: User, booking_id: uuid.UUID, message: str | None
-) -> Booking:
+def late_notice(session: Session, token: str, message: str | None) -> ManagedBooking:
     _lock(session)
-    booking = _get_own(session, user, booking_id)
+    booking, person = _by_token(session, token)
     now = clock.utcnow()
     if booking.status not in ACTIVE or not now < booking.slot_start < now + NOTICE:
         raise AppError(ErrorCode.invalid_state)
     _set_status(session, booking, BookingStatus.cancelled)
     booking.late_cancellation = True
-    emails.late_notice(session, booking, user, message)
-    return _commit(session, booking)
+    emails.late_notice(session, booking, person, message)
+    return to_managed(_commit(session, booking), person)
 
 
 # --- Admin
@@ -316,20 +290,8 @@ def approve(session: Session, booking_id: uuid.UUID, zoom_link: str | None) -> B
         if not zoom_link:
             raise AppError(ErrorCode.validation, "Please add the Zoom link.")
         booking.zoom_link = zoom_link
-    original = (
-        session.get(Booking, booking.reschedule_of_id, populate_existing=True)
-        if booking.reschedule_of_id
-        else None
-    )
-    # A session that already took place stays in the history as held.
-    if (
-        original
-        and original.status is BookingStatus.confirmed
-        and original.slot_start > clock.utcnow()
-    ):
-        _set_status(session, original, BookingStatus.rescheduled)
     _set_status(session, booking, BookingStatus.confirmed)
-    emails.approved(session, booking, session.get_one(User, booking.user_id))
+    emails.approved(session, booking, _person(session, booking))
     return _commit(session, booking)
 
 
@@ -338,67 +300,35 @@ def decline(session: Session, booking_id: uuid.UUID, message: str | None) -> Boo
     booking = _pending_future(session, booking_id)
     _set_status(session, booking, BookingStatus.declined)
     booking.decline_message = message or None
-    emails.declined(session, booking, session.get_one(User, booking.user_id))
+    emails.declined(session, booking, _person(session, booking))
     return _commit(session, booking)
 
 
 def revert(session: Session, booking_id: uuid.UUID) -> Booking:
+    """Undo an approval or decline, back to pending, while the session is ahead."""
     _lock(session)
     booking = _get(session, booking_id)
     if (
         booking.status not in (BookingStatus.confirmed, BookingStatus.declined)
         or booking.slot_start <= clock.utcnow()
-        or _pending_reschedule(session, booking)
     ):
         raise AppError(ErrorCode.invalid_state, "This decision can't be undone.")
-    original = (
-        session.get(Booking, booking.reschedule_of_id, populate_existing=True)
-        if booking.reschedule_of_id
-        else None
-    )
-    ignore = {booking.id}
-    if original:
-        ignore.add(original.id)
-
     if booking.status is BookingStatus.declined:
-        # The slot was released, so it must still be free.
-        _check_restorable(session, booking, ignore)
-        if original and (
-            original.status is not BookingStatus.confirmed
-            or _pending_reschedule(session, original)
+        # The slot was released when declined, so it must still be free.
+        holder = _holder(session, booking.slot_start)
+        if (
+            session.get(BlockedDate, booking.session_date)
+            or holder
+            or _has_active_on(session, booking.person_id, booking.session_date, None)
         ):
             raise AppError(
                 ErrorCode.invalid_state,
-                "The original session has changed, so this can't be undone.",
+                "That time is no longer available, so this can't be undone.",
             )
-    elif original and original.status is BookingStatus.rescheduled:
-        if original.slot_start <= clock.utcnow():
-            raise AppError(
-                ErrorCode.invalid_state,
-                "The original session's time has passed, so this can't be undone.",
-            )
-        _check_restorable(session, original, ignore)
-        _set_status(session, original, BookingStatus.confirmed)
-
     _set_status(session, booking, BookingStatus.pending)
     booking.zoom_link = None
     booking.decline_message = None
     return _commit(session, booking)
-
-
-def _check_restorable(
-    session: Session, booking: Booking, ignore: set[uuid.UUID]
-) -> None:
-    holder = _holder(session, booking.slot_start)
-    if (
-        session.get(BlockedDate, booking.session_date)
-        or (holder and holder.id != booking.id)
-        or _has_active_on(session, booking.user_id, booking.session_date, ignore)
-    ):
-        raise AppError(
-            ErrorCode.invalid_state,
-            "That time is no longer available, so this can't be undone.",
-        )
 
 
 def set_attendance(
@@ -407,8 +337,7 @@ def set_attendance(
     """Record whether the visitor came (attended / no_show), or clear it (None).
 
     Allowed from the moment an approved session starts, and can be corrected later.
-    The "we missed you" email goes out at most once per booking: it waits for the
-    Undo delay, is withdrawn by any later change, and isn't sent again once sent.
+    No email is sent: the minister writes to people herself (see `follow_up`).
     """
     _lock(session)
     booking = _get(session, booking_id)
@@ -420,12 +349,27 @@ def set_attendance(
     target = attendance or BookingStatus.confirmed
     if booking.status is target:
         return booking
-    _set_status(session, booking, target)
-    if target is BookingStatus.no_show and not emails.no_show_already_sent(
-        session, booking
-    ):
-        emails.no_show(session, booking, session.get_one(User, booking.user_id))
+    # Not `_set_status`: recording attendance makes no earlier email untrue.
+    booking.status = target
+    booking.updated_at = clock.utcnow()
     return _commit(session, booking)
+
+
+def follow_up(
+    session: Session, booking_id: uuid.UUID, subject: str, message: str
+) -> Booking:
+    """The minister's personal email to someone marked as didn't come."""
+    booking = _get(session, booking_id)
+    if booking.status is not BookingStatus.no_show:
+        raise AppError(
+            ErrorCode.invalid_state,
+            "You can only email people who were marked as didn't come.",
+        )
+    emails.follow_up(session, booking, _person(session, booking), subject, message)
+    booking.follow_up_sent_at = clock.utcnow()
+    session.commit()
+    session.refresh(booking)
+    return booking
 
 
 # --- Blocked Thursdays
@@ -446,8 +390,8 @@ def block_date(
     blocked = BlockedDate(date=day, reason=reason or None)
     session.add(blocked)
     affected = session.exec(
-        select(Booking, User)
-        .join(User, col(User.id) == col(Booking.user_id))
+        select(Booking, Person)
+        .join(Person, col(Person.id) == col(Booking.person_id))
         .where(
             Booking.session_date == day,
             Booking.slot_start > clock.utcnow(),
@@ -456,9 +400,8 @@ def block_date(
     ).all()
     for booking, _ in affected:
         _set_status(session, booking, BookingStatus.cancelled_by_minister)
-    # A session and its same-day reschedule request are one email.
-    for visitor in {visitor.id: visitor for _, visitor in affected}.values():
-        emails.thursday_cancelled(session, day, visitor)
+    for person in {person.id: person for _, person in affected}.values():
+        emails.thursday_cancelled(session, day, person)
     session.commit()
     session.refresh(blocked)
     return blocked, len(affected)

@@ -17,7 +17,7 @@ os.environ.update(
 
 # ruff: noqa: E402
 import datetime as dt
-import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -91,15 +91,13 @@ def anon():
     return TestClient(app)
 
 
-def make_client(email: str, role: Role = Role.visitor) -> TestClient:
+def make_admin(email: str = "janis@example.com") -> TestClient:
     with Session(get_engine()) as session:
         session.add(
             User(
                 email=email,
-                full_name=email.split("@")[0].title(),
-                phone="(403) 555-0142",
-                role=role,
-                email_verified=True,
+                full_name="Janis",
+                role=Role.admin,
                 password_hash=PASSWORD_HASH,
             )
         )
@@ -110,58 +108,84 @@ def make_client(email: str, role: Role = Role.visitor) -> TestClient:
     return client
 
 
+@dataclass
+class Visitor:
+    """Someone booking from the public site: no account, just their details."""
+
+    email: str
+    full_name: str
+    client: TestClient
+
+
+def make_visitor(email: str) -> Visitor:
+    return Visitor(email, email.split("@")[0].title(), TestClient(app))
+
+
 @pytest.fixture
 def grace():
-    return make_client("grace@example.com")
+    return make_visitor("grace@example.com")
 
 
 @pytest.fixture
 def tom():
-    return make_client("tom@example.com")
+    return make_visitor("tom@example.com")
 
 
 @pytest.fixture
 def admin():
-    return make_client("janis@example.com", Role.admin)
+    return make_admin()
+
+
+# booking id -> its private manage token, as returned when it was created
+TOKENS: dict[str, str] = {}
 
 
 def slot(day: dt.date, index: int = 0) -> str:
     return slots_on(day)[index].strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-def book(client, day=DEC_3, index=0, **extra):
-    return client.post(
+def book(visitor: Visitor, day=DEC_3, index=0, **extra):
+    response = visitor.client.post(
         "/bookings",
         json={
-            "slotStart": slot(day, index),
-            "mode": "in_person",
-            "topic": "healing",
+            "fullName": visitor.full_name,
+            "email": visitor.email,
+            "phone": "(403) 555-0142",
             "prayerPoints": "SECRET-POINTS",
+            "slotStart": slot(day, index),
         }
         | extra,
     )
+    if response.status_code == 201:
+        body = response.json()
+        TOKENS[body["booking"]["id"]] = body["manageToken"]
+    return response
 
 
-def booked(client, day=DEC_3, index=0, **extra) -> str:
-    response = book(client, day, index, **extra)
+def booked(visitor: Visitor, day=DEC_3, index=0, **extra) -> str:
+    response = book(visitor, day, index, **extra)
     assert response.status_code == 201, response.text
-    return response.json()["id"]
+    return response.json()["booking"]["id"]
 
 
 def approve(admin, booking_id: str, **body):
     return admin.post(f"/admin/bookings/{booking_id}/approve", json=body)
 
 
-def confirmed(client, admin, day=DEC_3, index=0, **extra) -> str:
-    booking_id = booked(client, day, index, **extra)
+def confirmed(visitor: Visitor, admin, day=DEC_3, index=0, **extra) -> str:
+    booking_id = booked(visitor, day, index, **extra)
     assert approve(admin, booking_id).status_code == 200
     return booking_id
 
 
-def status_of(client, booking_id: str) -> str:
-    return next(
-        b["status"] for b in client.get("/me/bookings").json() if b["id"] == booking_id
-    )
+def manage(visitor: Visitor, booking_id: str, action: str = "", **body):
+    """Use the private link: no action views it; "cancel" or "late-notice" act."""
+    url = f"/manage/{TOKENS[booking_id]}" + (f"/{action}" if action else "")
+    return visitor.client.post(url, json=body) if action else visitor.client.get(url)
+
+
+def status_of(visitor: Visitor, booking_id: str) -> str:
+    return manage(visitor, booking_id).json()["status"]
 
 
 def check_error(response, status: int, code: str) -> None:
@@ -183,9 +207,3 @@ def mails(db: Session, recipient: str) -> list[OutboxEmail]:
 
 def subjects(db: Session, recipient: str) -> list[str]:
     return [m.subject for m in mails(db, recipient)]
-
-
-def last_code(db: Session, recipient: str) -> str:
-    match = re.search(r"code is (\d{6})", mails(db, recipient)[-1].body)
-    assert match
-    return match[1]

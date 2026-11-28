@@ -9,6 +9,7 @@ import { errorMessage } from "@/lib/api/errors"
 import type { AdminBooking, Attendance } from "@/lib/domain/types"
 
 import { useSetAttendance } from "../hooks"
+import { FollowUpButton } from "./follow-up-dialog"
 
 const firstName = (b: AdminBooking) => b.visitor.fullName.split(" ")[0]
 
@@ -17,7 +18,7 @@ const currentOf = (b: AdminBooking): Attendance | null =>
 
 const MESSAGES: Record<Attendance | "cleared", (name: string) => string> = {
   attended: (name) => `Marked ${name} as came.`,
-  no_show: (name) => `Marked ${name} as didn't come. They'll get a gentle email to rebook.`,
+  no_show: (name) => `Marked ${name} as didn't come. You can email them to check in.`,
   cleared: (name) => `Cleared attendance for ${name}.`,
 }
 
@@ -63,7 +64,10 @@ interface AttendanceControlProps {
   className?: string
 }
 
-/** "Came / Didn't come" toggle. Tapping the selected answer again clears it. */
+/**
+ * "Came / Didn't come" toggle. Tapping the selected answer again clears it.
+ * Once someone is marked as didn't come, the minister can email them from here.
+ */
 export function AttendanceControl({ booking, className }: AttendanceControlProps) {
   const { mark } = useAttendanceActions()
   const current = currentOf(booking)
@@ -71,7 +75,8 @@ export function AttendanceControl({ booking, className }: AttendanceControlProps
   const choose = (value: Attendance) => mark(booking, current === value ? null : value)
 
   return (
-    <div role="group" aria-label={`Did ${name} come?`} className={cn("flex gap-2", className)}>
+    <div className={cn("flex flex-col gap-2", className)}>
+    <div role="group" aria-label={`Did ${name} come?`} className="flex gap-2">
       <Button
         size="sm"
         variant={current === "attended" ? "default" : "outline"}
@@ -93,6 +98,8 @@ export function AttendanceControl({ booking, className }: AttendanceControlProps
       >
         <UserXIcon aria-hidden="true" /> Didn&apos;t come
       </Button>
+    </div>
+    {current === "no_show" && <FollowUpButton booking={booking} />}
     </div>
   )
 }

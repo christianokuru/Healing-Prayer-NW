@@ -10,7 +10,6 @@ import { PageHeader } from "@/components/common/page-header"
 import { StatTile } from "@/components/common/stat-tile"
 import { Surface, SurfaceHeader } from "@/components/common/surface"
 import { Skeleton } from "@/components/ui/skeleton"
-import { topicLabel } from "@/lib/domain/topics"
 import type { AnalyticsSummary } from "@/lib/domain/types"
 
 import { useAnalytics } from "../hooks"
@@ -47,27 +46,39 @@ function MonthlyBars({ monthly }: { monthly: AnalyticsSummary["monthly"] }) {
   )
 }
 
-function TopicBars({ topics, total }: { topics: AnalyticsSummary["topics"]; total: number }) {
-  if (!topics.length) return <p className="text-sm text-muted-foreground">No sessions in this period yet.</p>
+/** Came / didn't come / not marked yet, from the attendance the minister records. */
+function AttendanceBars({ a }: { a: AnalyticsSummary }) {
+  const rows = [
+    { label: "Came", count: a.sessionsHeld, bar: "bg-primary" },
+    { label: "Didn't come", count: a.noShows, bar: "bg-[#b4433a]" },
+    { label: "Not marked yet", count: a.unmarked, bar: "bg-warning" },
+  ]
+  const total = rows.reduce((n, r) => n + r.count, 0)
+  if (!total) return <p className="text-sm text-muted-foreground">No sessions in this period yet.</p>
   return (
-    <ul className="flex flex-col gap-4">
-      {topics.map((t, i) => {
-        const pct = total ? Math.round((t.count / total) * 100) : 0
-        return (
-          <li key={t.topic}>
-            <div className="mb-1.5 flex justify-between text-sm">
-              <span className="font-medium">{topicLabel(t.topic)}</span>
-              <span className="text-[#3f524b] tabular">
-                {t.count} · {pct}%
-              </span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-[#edf2ef]">
-              <div className={cn("h-full rounded-full", i === 0 ? "bg-primary" : "bg-[#3f7fb0]")} style={{ width: `${pct}%` }} />
-            </div>
-          </li>
-        )
-      })}
-    </ul>
+    <>
+      <ul className="flex flex-col gap-4">
+        {rows.map((r) => {
+          const pct = Math.round((r.count / total) * 100)
+          return (
+            <li key={r.label}>
+              <div className="mb-1.5 flex justify-between text-sm">
+                <span className="font-medium">{r.label}</span>
+                <span className="text-[#3f524b] tabular">
+                  {r.count} · {pct}%
+                </span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-[#edf2ef]">
+                <div className={cn("h-full rounded-full", r.bar)} style={{ width: `${pct}%` }} />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="mt-5 text-sm text-[#3f524b]">
+        {a.onlineSessions} of the sessions held {a.onlineSessions === 1 ? "was" : "were"} online by Zoom.
+      </p>
+    </>
   )
 }
 
@@ -130,8 +141,8 @@ export function AdminAnalytics() {
           {a ? <MonthlyBars monthly={a.monthly} /> : <Skeleton className="h-56 rounded-xl" />}
         </Surface>
         <Surface>
-          <SurfaceHeader title="What people ask prayer for" description="From the topic chosen when booking" />
-          {a ? <TopicBars topics={a.topics} total={a.sessionsHeld} /> : <Skeleton className="h-56 rounded-xl" />}
+          <SurfaceHeader title="How sessions went" description="From the attendance you mark after each Thursday" />
+          {a ? <AttendanceBars a={a} /> : <Skeleton className="h-56 rounded-xl" />}
         </Surface>
       </div>
 
@@ -153,7 +164,7 @@ export function AdminAnalytics() {
                   <span className="min-w-0">
                     <span className="block truncate font-semibold">{p.fullName}</span>
                     <span className="block text-[13px] text-muted-foreground">
-                      {p.completedCount} visits{p.topTopic ? ` · mostly ${topicLabel(p.topTopic).toLowerCase()}` : ""}
+                      {p.completedCount} {p.completedCount === 1 ? "visit" : "visits"}
                     </span>
                   </span>
                 </Link>

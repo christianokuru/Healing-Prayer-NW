@@ -16,6 +16,30 @@ uv run fastapi dev               # http://127.0.0.1:8000, docs at /docs
 uv run python -m app.worker      # separate terminal: emails and daily jobs
 ```
 
+### Without Docker (PostgreSQL installed on the machine)
+
+One-time setup, no `sudo` needed. The database lives in `~/.local/share/healing-prayer-nw`
+on port 5433, separate from any system PostgreSQL:
+
+```bash
+D=~/.local/share/healing-prayer-nw && mkdir -p $D
+/usr/lib/postgresql/17/bin/initdb -D $D/postgres -U hpn --auth=scram-sha-256 --pwprompt
+scripts/local-db.sh start
+psql -h 127.0.0.1 -p 5433 -U hpn -d postgres -c "CREATE DATABASE hpn;" -c "CREATE DATABASE hpn_test;"
+cp .env.example .env   # then set DATABASE_URL and TEST_DATABASE_URL with that password
+uv sync && uv run alembic upgrade head && uv run python -m app.seed
+```
+
+Every time, in three terminals (plus `scripts/local-db.sh start` after a reboot):
+
+```bash
+uv run fastapi dev                # backend/   API on :8000
+uv run python -m app.worker       # backend/   emails, printed here
+npm run dev                       # repo root  website on :3000 (live mode, see the root README)
+```
+
+Stop the database with `scripts/local-db.sh stop`.
+
 Without `SMTP_HOST` the worker prints emails, including visitors' manage links. To see real
 emails (with the calendar attachment), point it at a local mail catcher such as Mailpit:
 `SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025`, `SMTP_SECURITY=none` (development only).
@@ -23,7 +47,7 @@ emails (with the calendar attachment), point it at a local mail catcher such as 
 Tests never read your `.env`.
 
 Checks: `uv run pytest`, `uv run ruff check .`, `uv run ty check`. Tests use (and wipe)
-a separate `hpn_test` database; override it with `TEST_DATABASE_URL`.
+a separate `hpn_test` database; set it with `TEST_DATABASE_URL` (in the environment or `.env`).
 
 ## For the frontend
 

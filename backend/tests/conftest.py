@@ -1,7 +1,13 @@
 import os
+from pathlib import Path
 
-TEST_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql+psycopg://hpn:hpn@127.0.0.1:5433/hpn_test"
+from dotenv import dotenv_values
+
+# Only TEST_DATABASE_URL is taken from a local .env; nothing else in it reaches tests.
+TEST_URL = (
+    os.environ.get("TEST_DATABASE_URL")
+    or dotenv_values(Path(__file__).parents[1] / ".env").get("TEST_DATABASE_URL")
+    or "postgresql+psycopg://hpn:hpn@127.0.0.1:5433/hpn_test"
 )
 assert TEST_URL.split("?")[0].endswith("_test"), "Tests wipe their database"
 os.environ.update(
